@@ -4,7 +4,9 @@ This contains the changes between releases.
 
 # Unreleased
 
-* Removed the SQL dependency on `uuid-ossp`; UUIDv7 generation continues to use PostgreSQL's native UUIDv7 function when available and otherwise builds UUIDv7 values using PostgreSQL's built-in random UUID generator.
+* Added a Habitat tasks filter for terminal failures and defaulted the failed status view to hide failed attempts that were retried later.
+* Removed the SQL dependency on `uuid-ossp` and added the `0.4.0-main` migration for existing installs; UUIDv7 generation continues to use PostgreSQL's native UUIDv7 function when available and otherwise builds UUIDv7 values using PostgreSQL's built-in random UUID generator.  #127
+* Fixed Go, Python, and TypeScript SDK sleeps to schedule wake-ups relative to the database clock, avoiding drift when worker and database clocks differ.
 
 # 0.4.0
 
