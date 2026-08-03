@@ -1,4 +1,4 @@
-FROM postgres:16-alpine
+FROM postgres:16-alpine3.22
 
 ARG PG_CRON_VERSION=v1.6.7
 
