@@ -148,7 +148,6 @@ export interface AbsurdWorkflowStore {
   readonly requestTaskInterrupt: (
     queue: string,
     taskId: string,
-    checkpointName: string,
   ) => Effect.Effect<void, SqlError.SqlError>;
   readonly checkpointState: (
     queue: string,
@@ -250,14 +249,8 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
   cancelTask: (queue, taskId) =>
     Effect.asVoid(sql.unsafe(`select absurd.cancel_task($1, $2)`, [queue, taskId])),
 
-  requestTaskInterrupt: (queue, taskId, checkpointName) =>
-    Effect.asVoid(
-      sql.unsafe(`select absurd.request_task_interrupt($1, $2, $3)`, [
-        queue,
-        taskId,
-        checkpointName,
-      ]),
-    ),
+  requestTaskInterrupt: (queue, taskId) =>
+    Effect.asVoid(sql.unsafe(`select absurd.request_task_interrupt($1, $2)`, [queue, taskId])),
 
   checkpointState: (queue, taskId, checkpointName) =>
     optionalRow(

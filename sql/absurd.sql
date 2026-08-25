@@ -750,7 +750,8 @@ $$;
 
 -- Resolves a task by its idempotency key without exposing queue table layout
 -- to SDKs. Zero rows means that no such task currently exists (it may also
--- have been removed by queue cleanup).
+-- have been removed by queue cleanup). Partitioned queues resolve through
+-- their authoritative idempotency registry instead of scanning task partitions.
 create function absurd.get_task_by_idempotency_key (
   p_queue_name text,
   p_idempotency_key text
@@ -761,8 +762,27 @@ create function absurd.get_task_by_idempotency_key (
   )
   language plpgsql
 as $$
+declare
+  v_storage_mode text;
 begin
   p_queue_name := absurd.validate_queue_name(p_queue_name);
+
+  select q.storage_mode
+    into v_storage_mode
+    from absurd.queues q
+   where q.queue_name = p_queue_name;
+
+  if v_storage_mode = 'partitioned' then
+    return query execute format(
+      'select i.task_id, t.last_attempt_run
+         from absurd.%I i
+         join absurd.%I t on t.task_id = i.task_id
+        where i.idempotency_key = $1',
+      'i_' || p_queue_name,
+      't_' || p_queue_name
+    ) using p_idempotency_key;
+    return;
+  end if;
 
   return query execute format(
     'select task_id, last_attempt_run
@@ -1593,26 +1613,23 @@ end;
 $$;
 
 -- Deposits a durable safe-interruption request and makes a parked task
--- immediately claimable. The SDK chooses the checkpoint name so this primitive
--- stays language-agnostic; replay is responsible for interpreting the signal
--- and running any workflow-level compensation.
+-- immediately claimable. Absurd owns the reserved `$absurd:interrupt`
+-- checkpoint; SDKs must request interruption through this function rather than
+-- writing that marker themselves. Replay is responsible for interpreting the
+-- signal and running any workflow-level compensation.
 create function absurd.request_task_interrupt (
   p_queue_name text,
-  p_task_id uuid,
-  p_checkpoint_name text
+  p_task_id uuid
 )
   returns void
   language plpgsql
 as $$
 declare
+  v_checkpoint_name constant text := '$absurd:interrupt';
   v_now timestamptz := absurd.current_time();
   v_task_state text;
   v_owner_run uuid;
 begin
-  if p_checkpoint_name is null or length(trim(p_checkpoint_name)) = 0 then
-    raise exception 'checkpoint_name must be provided';
-  end if;
-
   -- Match complete_run()/fail_run()/cancel_task() lock order: active runs first,
   -- then the task row.
   execute format(
@@ -1648,7 +1665,7 @@ begin
      values ($1, $2, ''true''::jsonb, ''committed'', $3, $4)
      on conflict (task_id, checkpoint_name) do nothing',
     'c_' || p_queue_name
-  ) using p_task_id, p_checkpoint_name, v_owner_run, v_now;
+  ) using p_task_id, v_checkpoint_name, v_owner_run, v_now;
 
   -- A running worker observes the request when it next suspends. Pending and
   -- sleeping runs are made claimable now so replay can deliver the interrupt.
@@ -1671,6 +1688,12 @@ begin
       where task_id = $1
         and state in (''pending'', ''sleeping'')',
     't_' || p_queue_name
+  ) using p_task_id;
+
+  -- The interrupt supersedes any event wait belonging to the parked run.
+  execute format(
+    'delete from absurd.%I where task_id = $1',
+    'w_' || p_queue_name
   ) using p_task_id;
 end;
 $$;

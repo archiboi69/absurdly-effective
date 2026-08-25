@@ -239,7 +239,8 @@ const activityCheckpointName = (name: string, attempt: number): string =>
   `$activity:${name}:${attempt}`;
 const deferredCheckpointName = (name: string): string => `$defer:${name}`;
 const clockDeadlineCheckpointName = (deferredName: string): string => `$clock:${deferredName}`;
-const INTERRUPT_CHECKPOINT_NAME = "$workflow:interrupt";
+// Reserved and written exclusively by absurd.request_task_interrupt().
+const INTERRUPT_CHECKPOINT_NAME = "$absurd:interrupt";
 const deferredEventName = (
   workflowTag: string,
   executionId: string,
@@ -446,9 +447,7 @@ export const AbsurdWorkflowEngine = {
                 store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
               );
               if (Option.isSome(racedInterrupt)) {
-                yield* fatal(
-                  store.requestTaskInterrupt(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
-                );
+                yield* fatal(store.requestTaskInterrupt(claim.queue, claim.taskId));
               }
               return;
             }
@@ -467,9 +466,7 @@ export const AbsurdWorkflowEngine = {
                 store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
               );
               if (Option.isSome(racedInterrupt)) {
-                yield* fatal(
-                  store.requestTaskInterrupt(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
-                );
+                yield* fatal(store.requestTaskInterrupt(claim.queue, claim.taskId));
               }
               return;
             }
@@ -487,9 +484,7 @@ export const AbsurdWorkflowEngine = {
             store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
           );
           if (Option.isSome(racedInterrupt)) {
-            yield* fatal(
-              store.requestTaskInterrupt(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
-            );
+            yield* fatal(store.requestTaskInterrupt(claim.queue, claim.taskId));
           }
         });
 
@@ -635,9 +630,7 @@ export const AbsurdWorkflowEngine = {
           const queue = queueFor(workflow);
           const task = yield* fatal(store.taskIdForExecution(queue, executionId));
           if (Option.isSome(task)) {
-            yield* fatal(
-              store.requestTaskInterrupt(queue, task.value.task_id, INTERRUPT_CHECKPOINT_NAME),
-            );
+            yield* fatal(store.requestTaskInterrupt(queue, task.value.task_id));
           }
         });
 
