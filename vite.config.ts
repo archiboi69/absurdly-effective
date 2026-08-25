@@ -1,16 +1,13 @@
-import {
-  antipattern,
-  correctness,
-  effectNative,
-  style,
-} from "@effect/tsgo/oxlint-presets";
+import { antipattern, correctness, effectNative, style } from "@effect/tsgo/oxlint-presets";
 import { defineConfig } from "vite-plus";
 
 // Every effecttsgo rule the @effect/tsgo presets ship, at error severity.
+// SAFETY: every preset exposes the same `rules` record shape, so merging their
+// keys yields entries valid for `correctness.rules`.
 const effectRules = Object.fromEntries(
-  [correctness, antipattern, effectNative, style].flatMap((preset) =>
-    Object.keys(preset.rules ?? {}),
-  ).map((rule): [string, "error"] => [rule, "error"]),
+  [correctness, antipattern, effectNative, style]
+    .flatMap((preset) => Object.keys(preset.rules ?? {}))
+    .map((rule): [string, "error"] => [rule, "error"]),
 ) as NonNullable<typeof correctness.rules>;
 
 // Only the JS/TS workspace packages are linted/formatted; everything else
@@ -29,14 +26,61 @@ const outsideWorkspace = [
   "tests/**",
 ];
 
+const agentTooling = [
+  ".agent/**",
+  ".agents/**",
+  ".claude/**",
+  ".codex/**",
+  ".continue/**",
+  ".cursor/**",
+  ".gemini/**",
+  ".opencode/**",
+  ".pi/**",
+  ".roo/**",
+  ".windsurf/**",
+  ".zed/**",
+  "tools/oxlint/anti-slop/**",
+];
+
+const antiSlopRuleNames = [
+  "anti-slop/no-chained-type-assertions",
+  "anti-slop/no-conditional-empty-object-spread",
+  "anti-slop/no-known-value-widening",
+  "anti-slop/no-module-mocking",
+  "anti-slop/no-object-parameters",
+  "anti-slop/no-reflect-apply",
+  "anti-slop/no-reflect-get",
+  "anti-slop/no-runtime-typeof",
+  "anti-slop/no-shape-in-symbol-names",
+  "anti-slop/no-unknown-parameters",
+  "anti-slop/no-unknown-returns",
+  "anti-slop/no-unknown-type-aliases",
+  "anti-slop/no-unsafe-dictionary-type",
+  "anti-slop/no-widen-then-assert",
+  "anti-slop/require-safety-comment-for-type-assertion",
+  "anti-slop-effect/no-service-constructor-imports",
+];
+
 export default defineConfig({
   fmt: {
-    ignorePatterns: [...outsideWorkspace, "*.md", "*.toml", "*.sql"],
+    ignorePatterns: [...outsideWorkspace, ...agentTooling, "*.md", "*.toml", "*.sql"],
   },
   lint: {
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
-    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
-    ignorePatterns: ["**/dist/**", "sdks/typescript/examples/**", ...outsideWorkspace],
+    jsPlugins: [
+      { name: "vite-plus", specifier: "vite-plus/oxlint-plugin" },
+      { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
+      { name: "anti-slop-effect", specifier: "./tools/oxlint/anti-slop/effect/index.ts" },
+    ],
+    rules: {
+      "vite-plus/prefer-vite-plus-imports": "error",
+      ...Object.fromEntries(antiSlopRuleNames.map((rule): [string, "error"] => [rule, "error"])),
+    },
+    ignorePatterns: [
+      "**/dist/**",
+      "sdks/typescript/examples/**",
+      ...outsideWorkspace,
+      ...agentTooling,
+    ],
     options: { typeAware: true, typeCheck: true },
     overrides: [
       {
@@ -45,6 +89,10 @@ export default defineConfig({
         files: ["sdks/typescript/**"],
         plugins: ["effecttsgo"],
         rules: effectRules,
+      },
+      {
+        files: ["habitat/**"],
+        rules: Object.fromEntries(antiSlopRuleNames.map((rule): [string, "off"] => [rule, "off"])),
       },
     ],
   },
