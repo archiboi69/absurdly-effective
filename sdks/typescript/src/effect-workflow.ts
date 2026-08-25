@@ -55,15 +55,33 @@ class QueueAnnotation extends Context.Reference<string>(
 ) {}
 
 const MAX_QUEUE_NAME_LENGTH = 57;
-const CLAIM_TIMEOUT_SECONDS = 120;
+const DEFAULT_CLAIM_TIMEOUT = Duration.seconds(120);
+const MIN_CLAIM_TIMEOUT_SECONDS = 1;
 const UNKNOWN_TASK_DEFER_BASE_SECONDS = 15;
 const UNKNOWN_TASK_DEFER_JITTER_SECONDS = 15;
 const SUSPEND_RETRY_SECONDS = 0.25;
+
+/**
+ * Normalizes a claim lease to whole seconds (Absurd's `make_interval` takes
+ * integer seconds), clamped to a positive minimum.
+ */
+const normalizeClaimTimeoutSeconds = (input: Duration.Input | undefined): number => {
+  const millis = Duration.toMillis(Duration.fromInputUnsafe(input ?? DEFAULT_CLAIM_TIMEOUT));
+  return Math.max(MIN_CLAIM_TIMEOUT_SECONDS, Math.round(millis / 1000));
+};
+
+/**
+ * Heartbeat cadence derived from the lease: renew at half the lease so a
+ * killed worker holds a stale claim for at most one extra interval.
+ */
+const heartbeatIntervalMillis = (claimTimeoutSeconds: number): number =>
+  Math.max(500, Math.floor((claimTimeoutSeconds * 1000) / 2));
 
 interface QueueConfig {
   readonly name: string;
   readonly concurrency: number;
   readonly pollIntervalMillis: number;
+  readonly claimTimeoutSeconds: number;
 }
 
 export interface QueueOptions {
@@ -79,6 +97,16 @@ export interface QueueOptions {
    * @default 250ms
    */
   readonly pollInterval?: Duration.Input | undefined;
+  /**
+   * Claim lease granted to this worker when it picks up a run, in Effect
+   * `Duration`. The lease is renewed by a heartbeat at half this interval
+   * while a handler is in flight; if the worker dies, another worker may
+   * reclaim the run once the lease expires. Absurd leases whole seconds, so
+   * values are rounded and clamped to a minimum of one second.
+   *
+   * @default 120s
+   */
+  readonly claimTimeout?: Duration.Input | undefined;
 }
 
 export interface LayerOptions {
@@ -248,6 +276,7 @@ export const AbsurdWorkflowEngine = {
           pollIntervalMillis: Duration.toMillis(
             Duration.fromInputUnsafe(config.pollInterval ?? Duration.millis(250)),
           ),
+          claimTimeoutSeconds: normalizeClaimTimeoutSeconds(config.claimTimeout),
         }));
         const workerId = `absurd-effect:${os.hostname?.() ?? "host"}:${process.pid}`;
         const registrations = new Map<string, Registration>();
@@ -447,11 +476,11 @@ export const AbsurdWorkflowEngine = {
           yield* scheduleRunInSeconds(queue, runId, UNKNOWN_TASK_DEFER_BASE_SECONDS + jitter);
         });
 
-        const heartbeatLoop = (queue: string, runId: string) =>
+        const heartbeatLoop = (queue: string, runId: string, claimTimeoutSeconds: number) =>
           sql
-            .unsafe(`select absurd.extend_claim($1, $2, $3)`, [queue, runId, CLAIM_TIMEOUT_SECONDS])
+            .unsafe(`select absurd.extend_claim($1, $2, $3)`, [queue, runId, claimTimeoutSeconds])
             .pipe(
-              Effect.delay(Duration.seconds(CLAIM_TIMEOUT_SECONDS / 2)),
+              Effect.delay(Duration.millis(heartbeatIntervalMillis(claimTimeoutSeconds))),
               Effect.orDie,
               Effect.ignore,
               Effect.forever,
@@ -484,10 +513,11 @@ export const AbsurdWorkflowEngine = {
 
         const processClaim = (
           engine: WorkflowEngine.WorkflowEngine["Service"],
-          queue: string,
+          config: QueueConfig,
           claimed: ClaimedRow,
         ) =>
           Effect.gen(function* () {
+            const queue = config.name;
             const registration = registrations.get(claimed.task_name);
             if (registration === undefined) {
               return yield* deferUnknownRun(queue, claimed.run_id);
@@ -511,9 +541,11 @@ export const AbsurdWorkflowEngine = {
               claimed.params,
             );
 
-            // Extends the claim lease while the replay runs; closed with the
+            // Renews the claim lease while the replay runs; closed with the
             // per-claim scope below.
-            yield* Effect.forkScoped(heartbeatLoop(queue, claimed.run_id));
+            yield* Effect.forkScoped(
+              heartbeatLoop(queue, claimed.run_id, config.claimTimeoutSeconds),
+            );
 
             const instance = WorkflowEngine.WorkflowInstance.initial(
               registration.workflow,
@@ -548,14 +580,14 @@ export const AbsurdWorkflowEngine = {
                 sql.unsafe<ClaimedRow>(
                   `select run_id, task_id, attempt, task_name, params
                    from absurd.claim_task($1, $2, $3, $4)`,
-                  [config.name, workerId, CLAIM_TIMEOUT_SECONDS, 1],
+                  [config.name, workerId, config.claimTimeoutSeconds, 1],
                 ),
               );
               const task = claimed[0];
               if (task === undefined) {
                 return yield* Effect.sleep(Duration.millis(config.pollIntervalMillis));
               }
-              yield* processClaim(engine, config.name, task).pipe(
+              yield* processClaim(engine, config, task).pipe(
                 Effect.catchCause((cause) =>
                   Effect.logError(
                     `[absurd-effect] workflow run ${task.task_name} (${task.task_id}/${task.run_id}) failed`,
