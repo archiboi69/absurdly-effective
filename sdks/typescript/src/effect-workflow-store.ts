@@ -1,0 +1,288 @@
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlError from "effect/unstable/sql/SqlError";
+import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import * as Schema from "effect/Schema";
+
+// This module IS the persistence boundary: parameters arrive from Absurd's
+// jsonb columns or head toward them, so `unknown`/`object` here are the
+// storage contract, parsed by workflow schemas above this layer.
+// oxlint-disable anti-slop/no-object-parameters
+// oxlint-disable anti-slop/no-unknown-parameters
+
+/**
+ * Private Absurd persistence boundary for `AbsurdWorkflowEngine`.
+ *
+ * Every SQL statement the engine runs lives here. Callers hand over plain
+ * JSON-safe structures; this module owns serialization to `jsonb` text and
+ * returns raw rows. Operational state transitions are performed exclusively
+ * through Absurd stored procedures (`spawn_task`, `claim_task`,
+ * `complete_run`, `schedule_run`, `set_task_checkpoint_state`,
+ * `get_task_checkpoint_state`, `await_event`, `emit_event`,
+ * `request_task_interrupt`, `cancel_task`, `extend_claim`, `get_task_result`),
+ * keeping locking and transition policy in the database layer. Remaining
+ * statements are reads for observability and control-flow decisions.
+ *
+ * Operations surface `SqlError`; the engine escalates them to defects at a
+ * single documented choke point because `WorkflowEngine.Encoded` operations
+ * expose no infrastructure error channel.
+ */
+
+// SAFETY: Absurd's jsonb columns are the system of record for these values;
+// encoding arbitrary JSON-safe structures to JSON text is exactly the job of
+// this boundary, so `Schema.Unknown` is the accurate contract here.
+const toJsonText = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+const ClaimedRow = Schema.Struct({
+  run_id: Schema.String,
+  task_id: Schema.String,
+  attempt: Schema.Int,
+  task_name: Schema.String,
+  params: Schema.Unknown,
+});
+export type ClaimedRow = typeof ClaimedRow.Type;
+
+const TaskInfoRow = Schema.Struct({
+  task_id: Schema.String,
+  last_attempt_run: Schema.NullOr(Schema.String),
+});
+export type TaskInfoRow = typeof TaskInfoRow.Type;
+
+const TaskSnapshotRow = Schema.Struct({
+  state: Schema.String,
+  result: Schema.Unknown,
+  failure_reason: Schema.Unknown,
+});
+export type TaskSnapshotRow = typeof TaskSnapshotRow.Type;
+
+const SpawnedTaskRow = Schema.Struct({ task_id: Schema.String });
+export type SpawnedTaskRow = typeof SpawnedTaskRow.Type;
+
+const AwaitEventRow = Schema.Struct({ should_suspend: Schema.Boolean });
+export type AwaitEventRow = typeof AwaitEventRow.Type;
+
+const CheckpointStateRow = Schema.Struct({ state: Schema.Unknown });
+const ExecutionIdRow = Schema.Struct({ idempotency_key: Schema.NullOr(Schema.String) });
+
+/**
+ * Decode a query whose SQL contract guarantees exactly one row. An empty or
+ * malformed result is a persistence invariant violation, not an optional
+ * domain value, so it is kept out of the store's recoverable error channel.
+ */
+const requiredRow = <A extends object>(
+  Result: Schema.Codec<A, A, never, never>,
+  execute: Effect.Effect<ReadonlyArray<unknown>, SqlError.SqlError>,
+): Effect.Effect<A, SqlError.SqlError> =>
+  SqlSchema.findOne({
+    Request: Schema.Void,
+    Result,
+    execute: () => execute,
+  })(undefined).pipe(
+    Effect.catchTags({
+      NoSuchElementError: Effect.die,
+      SchemaError: Effect.die,
+    }),
+  );
+
+/** Decode a query for which zero rows is an expected outcome. */
+const optionalRow = <A extends object>(
+  Result: Schema.Codec<A, A, never, never>,
+  execute: Effect.Effect<ReadonlyArray<unknown>, SqlError.SqlError>,
+): Effect.Effect<Option.Option<A>, SqlError.SqlError> =>
+  SqlSchema.findOneOption({
+    Request: Schema.Void,
+    Result,
+    execute: () => execute,
+  })(undefined).pipe(Effect.catchTag("SchemaError", Effect.die));
+
+export interface AbsurdWorkflowStore {
+  readonly spawnTask: (
+    queue: string,
+    taskName: string,
+    payload: object,
+    options: object,
+  ) => Effect.Effect<SpawnedTaskRow, SqlError.SqlError>;
+  readonly taskIdForExecution: (
+    queue: string,
+    executionId: string,
+  ) => Effect.Effect<Option.Option<TaskInfoRow>, SqlError.SqlError>;
+  readonly executionIdForTask: (
+    queue: string,
+    taskId: string,
+  ) => Effect.Effect<Option.Option<string>, SqlError.SqlError>;
+  readonly claimTask: (
+    queue: string,
+    workerId: string,
+    claimTimeoutSeconds: number,
+  ) => Effect.Effect<Option.Option<ClaimedRow>, SqlError.SqlError>;
+  readonly extendClaim: (
+    queue: string,
+    runId: string,
+    seconds: number,
+  ) => Effect.Effect<void, SqlError.SqlError>;
+  readonly completeRun: (
+    queue: string,
+    runId: string,
+    result: unknown,
+  ) => Effect.Effect<void, SqlError.SqlError>;
+  readonly scheduleRunInSeconds: (
+    queue: string,
+    runId: string,
+    seconds: number,
+  ) => Effect.Effect<void, SqlError.SqlError>;
+  readonly resumeRun: (queue: string, runId: string) => Effect.Effect<void, SqlError.SqlError>;
+  readonly awaitEvent: (
+    queue: string,
+    taskId: string,
+    runId: string,
+    checkpointName: string,
+    eventName: string,
+  ) => Effect.Effect<AwaitEventRow, SqlError.SqlError>;
+  readonly emitEvent: (
+    queue: string,
+    eventName: string,
+    payload: unknown,
+  ) => Effect.Effect<void, SqlError.SqlError>;
+  readonly cancelTask: (queue: string, taskId: string) => Effect.Effect<void, SqlError.SqlError>;
+  readonly requestTaskInterrupt: (
+    queue: string,
+    taskId: string,
+    checkpointName: string,
+  ) => Effect.Effect<void, SqlError.SqlError>;
+  readonly checkpointState: (
+    queue: string,
+    taskId: string,
+    checkpointName: string,
+  ) => Effect.Effect<Option.Option<unknown>, SqlError.SqlError>;
+  readonly setCheckpointState: (
+    queue: string,
+    taskId: string,
+    checkpointName: string,
+    state: unknown,
+    ownerRunId: string,
+  ) => Effect.Effect<void, SqlError.SqlError>;
+  readonly taskResult: (
+    queue: string,
+    taskId: string,
+  ) => Effect.Effect<Option.Option<TaskSnapshotRow>, SqlError.SqlError>;
+}
+
+export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowStore => ({
+  spawnTask: (queue, taskName, payload, options) =>
+    requiredRow(
+      SpawnedTaskRow,
+      sql.unsafe(`select task_id from absurd.spawn_task($1, $2, $3, $4)`, [
+        queue,
+        taskName,
+        toJsonText(payload),
+        toJsonText(options),
+      ]),
+    ),
+
+  taskIdForExecution: (queue, executionId) =>
+    optionalRow(
+      TaskInfoRow,
+      sql.unsafe(
+        `select task_id, last_attempt_run
+           from absurd.get_task_by_idempotency_key($1, $2)`,
+        [queue, executionId],
+      ),
+    ),
+
+  executionIdForTask: (queue, taskId) =>
+    optionalRow(
+      ExecutionIdRow,
+      sql.unsafe(`select idempotency_key from absurd.get_task_idempotency_key($1, $2)`, [
+        queue,
+        taskId,
+      ]),
+    ).pipe(Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.idempotency_key)))),
+
+  claimTask: (queue, workerId, claimTimeoutSeconds) =>
+    optionalRow(
+      ClaimedRow,
+      sql.unsafe(
+        `select run_id, task_id, attempt, task_name, params
+         from absurd.claim_task($1, $2, $3, $4)`,
+        [queue, workerId, claimTimeoutSeconds, 1],
+      ),
+    ),
+
+  extendClaim: (queue, runId, seconds) =>
+    Effect.asVoid(sql.unsafe(`select absurd.extend_claim($1, $2, $3)`, [queue, runId, seconds])),
+
+  completeRun: (queue, runId, result) =>
+    Effect.asVoid(
+      sql.unsafe(`select absurd.complete_run($1, $2, $3)`, [queue, runId, toJsonText(result)]),
+    ),
+
+  scheduleRunInSeconds: (queue, runId, seconds) =>
+    Effect.asVoid(
+      sql.unsafe(
+        `select absurd.schedule_run($1, $2, absurd.current_time() + make_interval(secs => $3))`,
+        [queue, runId, seconds],
+      ),
+    ),
+
+  resumeRun: (queue, runId) =>
+    Effect.asVoid(
+      sql.unsafe(`select absurd.schedule_run($1, $2, absurd.current_time())`, [queue, runId]),
+    ),
+
+  awaitEvent: (queue, taskId, runId, checkpointName, eventName) =>
+    requiredRow(
+      AwaitEventRow,
+      sql.unsafe(`select should_suspend from absurd.await_event($1, $2, $3, $4, $5)`, [
+        queue,
+        taskId,
+        runId,
+        checkpointName,
+        eventName,
+      ]),
+    ),
+
+  emitEvent: (queue, eventName, payload) =>
+    Effect.asVoid(
+      sql.unsafe(`select absurd.emit_event($1, $2, $3)`, [queue, eventName, toJsonText(payload)]),
+    ),
+
+  cancelTask: (queue, taskId) =>
+    Effect.asVoid(sql.unsafe(`select absurd.cancel_task($1, $2)`, [queue, taskId])),
+
+  requestTaskInterrupt: (queue, taskId, checkpointName) =>
+    Effect.asVoid(
+      sql.unsafe(`select absurd.request_task_interrupt($1, $2, $3)`, [
+        queue,
+        taskId,
+        checkpointName,
+      ]),
+    ),
+
+  checkpointState: (queue, taskId, checkpointName) =>
+    optionalRow(
+      CheckpointStateRow,
+      sql.unsafe(`select state from absurd.get_task_checkpoint_state($1, $2, $3)`, [
+        queue,
+        taskId,
+        checkpointName,
+      ]),
+    ).pipe(Effect.map(Option.map((row) => row.state))),
+
+  setCheckpointState: (queue, taskId, checkpointName, state, ownerRunId) =>
+    Effect.asVoid(
+      sql.unsafe(`select absurd.set_task_checkpoint_state($1, $2, $3, $4, $5)`, [
+        queue,
+        taskId,
+        checkpointName,
+        toJsonText(state),
+        ownerRunId,
+      ]),
+    ),
+
+  taskResult: (queue, taskId) =>
+    optionalRow(
+      TaskSnapshotRow,
+      sql.unsafe(`select * from absurd.get_task_result($1, $2)`, [queue, taskId]),
+    ),
+});

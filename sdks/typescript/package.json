@@ -37,6 +37,7 @@
     "docs": "typedoc"
   },
   "devDependencies": {
+    "@effect/sql-pg": "4.0.0-rc.108",
     "@effect/vitest": "4.0.0-rc.108",
     "@testcontainers/postgresql": "^11.7.2",
     "@types/node": "^22.10.2",

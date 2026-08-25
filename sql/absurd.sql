@@ -748,6 +748,54 @@ begin
 end;
 $$;
 
+-- Resolves a task by its idempotency key without exposing queue table layout
+-- to SDKs. Zero rows means that no such task currently exists (it may also
+-- have been removed by queue cleanup).
+create function absurd.get_task_by_idempotency_key (
+  p_queue_name text,
+  p_idempotency_key text
+)
+  returns table (
+    task_id uuid,
+    last_attempt_run uuid
+  )
+  language plpgsql
+as $$
+begin
+  p_queue_name := absurd.validate_queue_name(p_queue_name);
+
+  return query execute format(
+    'select task_id, last_attempt_run
+       from absurd.%I
+      where idempotency_key = $1',
+    't_' || p_queue_name
+  ) using p_idempotency_key;
+end;
+$$;
+
+-- Returns the idempotency key attached to a task. SDK adapters can use this
+-- after claiming a task to recover their own durable execution identity.
+create function absurd.get_task_idempotency_key (
+  p_queue_name text,
+  p_task_id uuid
+)
+  returns table (
+    idempotency_key text
+  )
+  language plpgsql
+as $$
+begin
+  p_queue_name := absurd.validate_queue_name(p_queue_name);
+
+  return query execute format(
+    'select idempotency_key
+       from absurd.%I
+      where task_id = $1',
+    't_' || p_queue_name
+  ) using p_task_id;
+end;
+$$;
+
 -- Spawns a given task in a queue.
 --
 -- If an idempotency_key is provided in p_options, the function will check if a task
@@ -1541,6 +1589,89 @@ begin
       'c_' || p_queue_name
     ) using p_task_id, p_step_name, p_state, p_owner_run, v_now;
   end if;
+end;
+$$;
+
+-- Deposits a durable safe-interruption request and makes a parked task
+-- immediately claimable. The SDK chooses the checkpoint name so this primitive
+-- stays language-agnostic; replay is responsible for interpreting the signal
+-- and running any workflow-level compensation.
+create function absurd.request_task_interrupt (
+  p_queue_name text,
+  p_task_id uuid,
+  p_checkpoint_name text
+)
+  returns void
+  language plpgsql
+as $$
+declare
+  v_now timestamptz := absurd.current_time();
+  v_task_state text;
+  v_owner_run uuid;
+begin
+  if p_checkpoint_name is null or length(trim(p_checkpoint_name)) = 0 then
+    raise exception 'checkpoint_name must be provided';
+  end if;
+
+  -- Match complete_run()/fail_run()/cancel_task() lock order: active runs first,
+  -- then the task row.
+  execute format(
+    'select run_id
+       from absurd.%I
+      where task_id = $1
+        and state not in (''completed'', ''failed'', ''cancelled'')
+      order by run_id
+      for update',
+    'r_' || p_queue_name
+  ) using p_task_id;
+
+  execute format(
+    'select state, last_attempt_run
+       from absurd.%I
+      where task_id = $1
+      for update',
+    't_' || p_queue_name
+  )
+  into v_task_state, v_owner_run
+  using p_task_id;
+
+  if v_task_state is null then
+    raise exception 'Task "%" not found in queue "%"', p_task_id, p_queue_name;
+  end if;
+
+  if v_task_state in ('completed', 'failed', 'cancelled') then
+    return;
+  end if;
+
+  execute format(
+    'insert into absurd.%I (task_id, checkpoint_name, state, status, owner_run_id, updated_at)
+     values ($1, $2, ''true''::jsonb, ''committed'', $3, $4)
+     on conflict (task_id, checkpoint_name) do nothing',
+    'c_' || p_queue_name
+  ) using p_task_id, p_checkpoint_name, v_owner_run, v_now;
+
+  -- A running worker observes the request when it next suspends. Pending and
+  -- sleeping runs are made claimable now so replay can deliver the interrupt.
+  execute format(
+    'update absurd.%I
+        set state = ''pending'',
+            available_at = $2,
+            wake_event = null,
+            event_payload = null,
+            claimed_by = null,
+            claim_expires_at = null
+      where task_id = $1
+        and state in (''pending'', ''sleeping'')',
+    'r_' || p_queue_name
+  ) using p_task_id, v_now;
+
+  execute format(
+    'update absurd.%I
+        set state = ''pending''
+      where task_id = $1
+        and state in (''pending'', ''sleeping'')',
+    't_' || p_queue_name
+  ) using p_task_id;
 end;
 $$;
 

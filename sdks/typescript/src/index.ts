@@ -5,6 +5,7 @@ import * as pg from "pg";
 import * as os from "os";
 
 export { AbsurdWorkflowEngine } from "./effect-workflow.ts";
+export type { LayerOptions, QueueOptions } from "./effect-workflow.ts";
 
 export type Queryable = Pick<pg.Client, "query"> | Pick<pg.PoolClient, "query">;
 
