@@ -4,7 +4,6 @@ Absurd currently has first-party SDKs for:
 
 - **[TypeScript](./typescript.md)** (also usable from JavaScript)
 - **[Python](./python.md)**
-- **[Go](./go.md)** *(experimental)*
 
 Absurd SDKs are intentionally lightweight. Most durable-execution complexity
 lives in the Postgres schema and stored procedures, while SDKs provide

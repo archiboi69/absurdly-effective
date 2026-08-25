@@ -40,7 +40,6 @@ nav = [
         {"Overview" = "sdks/index.md"},
         {"TypeScript" = "sdks/typescript.md"},
         {"Python" = "sdks/python.md"},
-        {"Go" = "sdks/go.md"},
     ]},
 
     {"Patterns" = [

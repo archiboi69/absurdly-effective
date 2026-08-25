@@ -1,4 +1,4 @@
-.PHONY: format check check-python test test-core test-typescript test-python test-go build-absurdctl build-absurdctl-pypi docs serve-docs
+.PHONY: format check check-python test test-core test-typescript test-python build-absurdctl build-absurdctl-pypi docs serve-docs
 
 # Format all code
 format:
@@ -6,7 +6,6 @@ format:
 	@cd habitat/ui && npx prettier -w .
 	@uvx ruff format tests sdks/python
 	@gofmt -w habitat
-	@gofmt -w sdks/go/absurd
 
 ZENSICAL_VERSION ?= 0.0.21
 
@@ -36,7 +35,7 @@ check-python:
 	@cd sdks/python && uv run --all-groups --with ty ty check
 
 # Run all tests
-test: test-core test-typescript test-python test-go
+test: test-core test-typescript test-python
 
 # Run core tests
 test-core:
@@ -52,10 +51,3 @@ test-typescript:
 test-python:
 	@echo "Running Python SDK tests"
 	@cd sdks/python; uv run pytest
-
-# Run Go SDK tests
-test-go:
-	@echo "Running Go SDK tests (root module)"
-	@cd sdks/go/absurd && go test ./...
-	@echo "Running Go SDK tests (integration module)"
-	@cd sdks/go/tests && go test ./...

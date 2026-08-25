@@ -68,22 +68,6 @@ retries.
     result = ctx.step("process-payment", process_payment)
     ```
 
-=== "Go"
-
-    ```go
-    result, err := absurd.Step(
-        ctx,
-        "process-payment",
-        func(ctx context.Context) (any, error) {
-            return stripe.Charges.Create(ctx, params.Amount)
-        },
-    )
-    if err != nil {
-        return err
-    }
-    _ = result
-    ```
-
 Code **outside** steps may execute multiple times across retries.  Keep
 side-effects inside steps.
 
@@ -158,36 +142,6 @@ first emit for a given name wins, subsequent emits are ignored.
     app.emit_event("shipment.packed:order-42", {"tracking_number": "XYZ"})
     ```
 
-=== "Go"
-
-    ```go
-    type ShipmentEvent struct {
-        TrackingNumber string `json:"tracking_number"`
-    }
-
-    // In a task handler — suspend until the event arrives
-    shipment, err := absurd.AwaitEvent[ShipmentEvent](
-        ctx,
-        "shipment.packed:order-42",
-    )
-    if err != nil {
-        return err
-    }
-
-    // From anywhere (another task, an API handler, etc.)
-    err = app.EmitEvent(
-        ctx,
-        app.QueueName(),
-        "shipment.packed:order-42",
-        map[string]any{"tracking_number": "XYZ"},
-    )
-    if err != nil {
-        return err
-    }
-
-    _ = shipment
-    ```
-
 Events can also have **timeouts**.  If the event doesn't arrive before the
 timeout expires, a `TimeoutError` is thrown.
 
@@ -213,26 +167,6 @@ the task and schedules a future run.
         "wait-for-deadline",
         datetime(2025, 12, 31, tzinfo=timezone.utc),
     )
-    ```
-
-=== "Go"
-
-    ```go
-    if err := absurd.SleepFor(
-        ctx,
-        "wait-for-cooldown",
-        time.Hour,
-    ); err != nil {
-        return err
-    }
-
-    if err := absurd.SleepUntil(
-        ctx,
-        "wait-for-deadline",
-        time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC),
-    ); err != nil {
-        return err
-    }
     ```
 
 ## Retries
@@ -283,23 +217,6 @@ Retry strategies can be `fixed`, `exponential`, or `none`:
     )
     ```
 
-=== "Go"
-
-    ```go
-    _, err := app.Spawn(ctx, "my-task", params, absurd.SpawnOptions{
-        MaxAttempts: 10,
-        RetryStrategy: &absurd.RetryStrategy{
-            Kind:        "exponential",
-            BaseSeconds: 2,
-            Factor:      2,
-            MaxSeconds:  300,
-        },
-    })
-    if err != nil {
-        return err
-    }
-    ```
-
 ## Cancellation
 
 Tasks can be cancelled programmatically or via
@@ -342,20 +259,6 @@ creating a new one.
     )
     ```
 
-=== "Go"
-
-    ```go
-    _, err := app.Spawn(
-        ctx,
-        "send-email",
-        map[string]any{"to": "user@example.com"},
-        absurd.SpawnOptions{IdempotencyKey: "welcome-email:user-42"},
-    )
-    if err != nil {
-        return err
-    }
-    ```
-
 This is useful whenever your scheduler or API endpoint might try to enqueue the
 same logical work more than once.
 
@@ -389,25 +292,6 @@ idempotency keys, derive one from the task identity.
 
 
     payment = ctx.step("process-payment", process_payment)
-    ```
-
-=== "Go"
-
-    ```go
-    task := absurd.MustTaskContext(ctx)
-
-    payment, err := absurd.Step(
-        ctx,
-        "process-payment",
-        func(ctx context.Context) (any, error) {
-            idempotencyKey := fmt.Sprintf("%s:payment", task.TaskID())
-            return stripe.Charges.Create(ctx, params.Amount, idempotencyKey)
-        },
-    )
-    if err != nil {
-        return err
-    }
-    _ = payment
     ```
 
 The important thing is that the key should come from something stable, such as
