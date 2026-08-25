@@ -9,6 +9,7 @@ import concurrent.futures
 import contextvars
 from contextlib import contextmanager
 from dataclasses import dataclass
+from hashlib import sha256
 import inspect
 import json
 import os
@@ -56,7 +57,9 @@ __all__ = [
     "TaskResultSnapshot",
     "StepHandle",
     "ClaimedTask",
+    "WorkflowSpawnResult",
     "AbsurdHooks",
+    "effect_workflow_execution_id",
     "get_current_context",
 ]
 
@@ -68,6 +71,16 @@ _current_task_context: contextvars.ContextVar[
 
 _UNKNOWN_TASK_DEFER_BASE_SECONDS = 15
 _UNKNOWN_TASK_DEFER_JITTER_SECONDS = 15
+
+
+def effect_workflow_execution_id(workflow_name: str, idempotency_key: str) -> str:
+    """Return the execution ID used by Effect's ``Workflow.executionId``.
+
+    Use this value as Absurd's task idempotency key when a non-Effect producer
+    spawns a task that an Effect ``WorkflowEngine`` will execute.
+    """
+    digest = sha256(f"{workflow_name}-{idempotency_key}".encode()).hexdigest()
+    return digest[:32]
 
 
 def get_current_context() -> Optional[Union["TaskContext", "AsyncTaskContext"]]:
@@ -170,6 +183,13 @@ class SpawnResult(TypedDict):
     task_id: str
     run_id: str
     attempt: int
+
+
+class WorkflowSpawnResult(TypedDict):
+    """Identity of a workflow execution and its backing Absurd task."""
+
+    execution_id: str
+    task_id: str
 
 
 class RetryTaskResult(TypedDict):
@@ -1517,6 +1537,30 @@ class Absurd(_AbsurdBase):
             "attempt": row["attempt"],
         }
 
+    def spawnWorkflow(
+        self,
+        workflow_name: str,
+        payload: Any,
+        business_idempotency_key: str,
+    ) -> WorkflowSpawnResult:
+        """Spawn an Effect workflow using its deterministic execution ID.
+
+        ``business_idempotency_key`` is converted to the execution ID Effect
+        uses for the workflow. That ID is stored as Absurd's idempotency key so
+        repeated dispatches resolve to the same backing task.
+        """
+        execution_id = effect_workflow_execution_id(
+            workflow_name, business_idempotency_key
+        )
+        spawned = self.spawn(
+            workflow_name,
+            payload,
+            queue=self._queue_name,
+            idempotency_key=execution_id,
+            retry_strategy={"kind": "fixed", "base_seconds": 1},
+        )
+        return {"execution_id": execution_id, "task_id": spawned["task_id"]}
+
     def fetch_task_result(
         self, task_id: str, queue_name: Optional[str] = None
     ) -> Optional[TaskResultSnapshot]:
@@ -2048,6 +2092,30 @@ class AsyncAbsurd(_AbsurdBase):
             "run_id": row["run_id"],
             "attempt": row["attempt"],
         }
+
+    async def spawnWorkflow(
+        self,
+        workflow_name: str,
+        payload: Any,
+        business_idempotency_key: str,
+    ) -> WorkflowSpawnResult:
+        """Spawn an Effect workflow using its deterministic execution ID.
+
+        ``business_idempotency_key`` is converted to the execution ID Effect
+        uses for the workflow. That ID is stored as Absurd's idempotency key so
+        repeated dispatches resolve to the same backing task.
+        """
+        execution_id = effect_workflow_execution_id(
+            workflow_name, business_idempotency_key
+        )
+        spawned = await self.spawn(
+            workflow_name,
+            payload,
+            queue=self._queue_name,
+            idempotency_key=execution_id,
+            retry_strategy={"kind": "fixed", "base_seconds": 1},
+        )
+        return {"execution_id": execution_id, "task_id": spawned["task_id"]}
 
     async def fetch_task_result(
         self, task_id: str, queue_name: Optional[str] = None

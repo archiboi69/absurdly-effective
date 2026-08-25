@@ -22,6 +22,29 @@ and records every step and decision.
 uv add absurd-sdk
 ```
 
+## Dispatching an Effect workflow
+
+When Python produces work for an Effect `WorkflowEngine`, use
+`spawnWorkflow`. It derives Effect's execution ID from the workflow name and
+your business idempotency key, stores it as Absurd's idempotency key, and uses
+Effect's fixed one-second retry strategy. Persist the returned execution ID for
+native `Workflow.poll`, `Workflow.resume`, and `Workflow.interrupt` calls; the
+task UUID is only a storage detail.
+
+```python
+from absurd_sdk import Absurd
+
+workflow_name = "ShippingBroker/Finance/IssueSalesInvoice"
+spawned = Absurd().spawnWorkflow(
+    workflow_name,
+    {"attemptId": 123},
+    "123",
+)
+
+execution_id = spawned["execution_id"]
+task_id = spawned["task_id"]
+```
+
 ## Synchronous API
 
 If you omit the connection argument, the client uses `ABSURD_DATABASE_URL`,
