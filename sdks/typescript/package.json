@@ -48,6 +48,7 @@
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "effect": ">=4.0.0-rc.108 <5",
     "pg": "^8.0.0"
   },
   "engines": {
