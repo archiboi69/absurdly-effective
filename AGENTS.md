@@ -1,12 +1,12 @@
 # Agents
 
-Absurd is a Postgres-native durable workflow system.  It moves the complexity of
+Absurd is a Postgres-native durable workflow system. It moves the complexity of
 durable execution into the database layer via stored procedures, keeping SDKs
-lightweight and language-agnostic.  The core principle is to handle tasks that
+lightweight and language-agnostic. The core principle is to handle tasks that
 may run for minutes, days, or years without losing state.
 
-**Key concept**: A *task* is subdivided into *steps* that act as checkpoints.
-Tasks can suspend (for sleep or events) and resume without data loss.  All state
+**Key concept**: A _task_ is subdivided into _steps_ that act as checkpoints.
+Tasks can suspend (for sleep or events) and resume without data loss. All state
 lives in Postgres tables prefixed by queue name (`t_`, `r_`, `c_`, `e_`, `w_`).
 
 ## Repository Structure
@@ -17,9 +17,21 @@ lives in Postgres tables prefixed by queue name (`t_`, `r_`, `c_`, `e_`, `w_`).
 - **absurdctl** - Python-based CLI tool for queue/task management and debugging
 - **tests/** - Python test suite using psycopg and testcontainers
 
+## Repository operation
+
+Vite+ (`vp`) is the canonical runtime, package manager, task runner, formatter,
+linter, test runner, bundler, and Vite frontend interface.
+
+- Tooling: use `vp fmt`, `vp lint`, and `vp test`; do not add parallel tooling
+  when Vite+ covers the job.
+- Packages: use `vp install`; use `vp pm <command>` only when direct pnpm access
+  is unavoidable. Do not run `pnpm` directly.
+- Help: `vp help`, `vp <command> --help`, and `node_modules/vite-plus/docs`.
+
 ## Building and Testing
 
 ### TypeScript SDK
+
 ```bash
 cd sdks/typescript
 npm install
@@ -27,6 +39,7 @@ npm run build  # Compiles to dist/ (both ESM and CommonJS)
 ```
 
 ### Habitat (Web UI)
+
 ```bash
 cd habitat
 make build      # Build UI + Go binary -> bin/habitat
@@ -35,6 +48,7 @@ make dev        # Run dev server with hot reload
 ```
 
 ### Python Tests
+
 ```bash
 cd tests
 uv run pytest              # Run all tests
@@ -42,13 +56,14 @@ uv run pytest test_foo.py  # Run single test file
 ```
 
 ### Formatting
+
 ```bash
 make format     # Format TypeScript SDK, habitat UI, and Python tests
 ```
 
 ## Habitat Web UI
 
-Habitat connects directly to Postgres and serves a SolidJS dashboard.  It shows
+Habitat connects directly to Postgres and serves a SolidJS dashboard. It shows
 task state, run history, checkpoint data, and events. Useful for debugging and
 monitoring.
 

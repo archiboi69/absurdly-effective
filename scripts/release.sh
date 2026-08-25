@@ -189,9 +189,8 @@ else
 fi
 
 # Update lockfiles to reflect the new version.
-# npm version already updates sdks/typescript/package-lock.json alongside
-# package.json, so avoid npm install here. Running install would trigger the
-# package's prepare script and fail from a clean checkout without node_modules.
+# The TypeScript SDK's own version is not recorded in its pnpm lockfile, so
+# only the Python lockfile needs refreshing here.
 info "Updating lockfiles..."
 cd "$PYTHON_SDK_DIR"
 uv lock
@@ -199,7 +198,7 @@ cd "$PROJECT_ROOT"
 
 # Commit the version change
 info "Creating git commit..."
-git add sdks/typescript/package.json sdks/typescript/package-lock.json sdks/python/pyproject.toml sdks/python/uv.lock sql/absurd.sql sql/migrations
+git add sdks/typescript/package.json sdks/typescript/pnpm-lock.yaml sdks/python/pyproject.toml sdks/python/uv.lock sql/absurd.sql sql/migrations
 git commit -m "Release $NEW_VERSION"
 
 # Create git tag without 'v' prefix

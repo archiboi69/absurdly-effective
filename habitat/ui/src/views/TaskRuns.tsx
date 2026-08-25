@@ -9,13 +9,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { Button, buttonVariants } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -46,18 +40,12 @@ export default function TaskRuns() {
   const [detailError, setDetailError] = createSignal<string | null>(null);
   const [retryError, setRetryError] = createSignal<string | null>(null);
   const [retrySuccess, setRetrySuccess] = createSignal<string | null>(null);
-  const [retryInFlight, setRetryInFlight] = createSignal<
-    "inplace" | "spawn" | null
-  >(null);
+  const [retryInFlight, setRetryInFlight] = createSignal<"inplace" | "spawn" | null>(null);
   const [retryDialogOpen, setRetryDialogOpen] = createSignal(false);
   const [retrySpawnNewTask, setRetrySpawnNewTask] = createSignal(false);
   const [retryMaxAttemptsInput, setRetryMaxAttemptsInput] = createSignal("");
-  const [retryDialogError, setRetryDialogError] = createSignal<string | null>(
-    null,
-  );
-  const [runDetails, setRunDetails] = createSignal<Record<string, TaskDetail>>(
-    {},
-  );
+  const [retryDialogError, setRetryDialogError] = createSignal<string | null>(null);
+  const [runDetails, setRunDetails] = createSignal<Record<string, TaskDetail>>({});
 
   const RUNS_PAGE_SIZE = 200;
   const MAX_RUNS_PAGE_FETCH = 1000;
@@ -99,10 +87,10 @@ export default function TaskRuns() {
     return results;
   };
 
-  const [runs, { refetch: refetchRuns }] = createResource<
-    TaskSummary[],
-    string
-  >(taskId, fetchRunsForTask);
+  const [runs, { refetch: refetchRuns }] = createResource<TaskSummary[], string>(
+    taskId,
+    fetchRunsForTask,
+  );
 
   createEffect(() => {
     const error = runs.error;
@@ -271,11 +259,7 @@ export default function TaskRuns() {
       }
     }
 
-    if (
-      !Number.isFinite(earliest) ||
-      !Number.isFinite(latest) ||
-      latest < earliest
-    ) {
+    if (!Number.isFinite(earliest) || !Number.isFinite(latest) || latest < earliest) {
       return null;
     }
 
@@ -288,18 +272,14 @@ export default function TaskRuns() {
       return null;
     }
 
-    const completedIndex = items.findIndex(
-      (run) => run.status.toLowerCase() === "completed",
-    );
+    const completedIndex = items.findIndex((run) => run.status.toLowerCase() === "completed");
     if (completedIndex === -1) {
       return null;
     }
 
     const attemptNumber = items[completedIndex]?.attempt;
     const derivedAttempts =
-      typeof attemptNumber === "number" && attemptNumber > 0
-        ? attemptNumber
-        : completedIndex + 1;
+      typeof attemptNumber === "number" && attemptNumber > 0 ? attemptNumber : completedIndex + 1;
     return Math.max(derivedAttempts, completedIndex + 1);
   });
 
@@ -424,9 +404,7 @@ export default function TaskRuns() {
         return;
       }
 
-      setRetrySuccess(
-        `Retried task ${result.taskId} on attempt ${result.attempt}.`,
-      );
+      setRetrySuccess(`Retried task ${result.taskId} on attempt ${result.attempt}.`);
 
       await handleRefresh();
     } catch (error) {
@@ -494,9 +472,7 @@ export default function TaskRuns() {
             </p>
           </div>
           <Show when={queueNames().length}>
-            <p class="text-xs text-muted-foreground">
-              Queues: {queueNames().join(", ")}
-            </p>
+            <p class="text-xs text-muted-foreground">Queues: {queueNames().join(", ")}</p>
           </Show>
         </div>
         <div class="flex flex-col-reverse gap-3 sm:flex-row sm:items-center">
@@ -540,9 +516,7 @@ export default function TaskRuns() {
             <CardContent class="flex flex-wrap items-center gap-x-6 gap-y-2 p-4 text-xs sm:flex-nowrap sm:text-sm">
               <div class="flex items-center gap-2">
                 <span class="text-muted-foreground">Runs</span>
-                <span class="font-medium text-foreground">
-                  {runs()?.length ?? 0}
-                </span>
+                <span class="font-medium text-foreground">{runs()?.length ?? 0}</span>
               </div>
               <div class="flex items-center gap-2">
                 <span class="text-muted-foreground">Statuses</span>
@@ -558,9 +532,7 @@ export default function TaskRuns() {
               </div>
               <div class="flex items-center gap-1">
                 <span class="text-muted-foreground">Duration</span>
-                <span class="font-medium text-foreground">
-                  {formatDuration(totalDurationMs())}
-                </span>
+                <span class="font-medium text-foreground">{formatDuration(totalDurationMs())}</span>
               </div>
               <div class="flex items-center gap-1">
                 <span class="text-muted-foreground">Completion</span>
@@ -570,19 +542,13 @@ export default function TaskRuns() {
                     if (attempts === null) {
                       return "Not completed";
                     }
-                    return `Completed in ${attempts} attempt${
-                      attempts === 1 ? "" : "s"
-                    }`;
+                    return `Completed in ${attempts} attempt${attempts === 1 ? "" : "s"}`;
                   })()}
                 </span>
               </div>
               <div class="flex items-center gap-1">
-                <span class="text-muted-foreground">
-                  {queueSummary().label}
-                </span>
-                <span class="font-medium text-foreground">
-                  {queueSummary().value ?? "—"}
-                </span>
+                <span class="text-muted-foreground">{queueSummary().label}</span>
+                <span class="font-medium text-foreground">{queueSummary().value ?? "—"}</span>
               </div>
               <div class="flex items-center gap-1">
                 <span class="text-muted-foreground">Checkpoints</span>
@@ -633,40 +599,21 @@ export default function TaskRuns() {
                       <CardDescription>
                         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span class="inline-flex items-center gap-1">
-                            <span class="text-muted-foreground opacity-80">
-                              Queue:
-                            </span>
-                            <span class="font-medium text-foreground">
-                              {run.queueName}
-                            </span>
+                            <span class="text-muted-foreground opacity-80">Queue:</span>
+                            <span class="font-medium text-foreground">{run.queueName}</span>
                           </span>
                           <span class="inline-flex items-center gap-1">
-                            <span class="text-muted-foreground opacity-80">
-                              Attempt:
-                            </span>
-                            <span class="font-medium text-foreground">
-                              {run.attempt}
-                            </span>
+                            <span class="text-muted-foreground opacity-80">Attempt:</span>
+                            <span class="font-medium text-foreground">{run.attempt}</span>
                           </span>
-                          <Show
-                            when={
-                              run.maxAttempts !== null &&
-                              run.maxAttempts !== undefined
-                            }
-                          >
+                          <Show when={run.maxAttempts !== null && run.maxAttempts !== undefined}>
                             <span class="inline-flex items-center gap-1">
-                              <span class="text-muted-foreground opacity-80">
-                                Max attempts:
-                              </span>
-                              <span class="font-medium text-foreground">
-                                {run.maxAttempts}
-                              </span>
+                              <span class="text-muted-foreground opacity-80">Max attempts:</span>
+                              <span class="font-medium text-foreground">{run.maxAttempts}</span>
                             </span>
                           </Show>
                           <span class="inline-flex items-center gap-1">
-                            <span class="text-muted-foreground opacity-80">
-                              Created:
-                            </span>
+                            <span class="text-muted-foreground opacity-80">Created:</span>
                             <RelativeTimestamp
                               class="font-medium text-foreground"
                               value={run.createdAt}
@@ -674,9 +621,7 @@ export default function TaskRuns() {
                             />
                           </span>
                           <span class="inline-flex items-center gap-1">
-                            <span class="text-muted-foreground opacity-80">
-                              Updated:
-                            </span>
+                            <span class="text-muted-foreground opacity-80">Updated:</span>
                             <RelativeTimestamp
                               class="font-medium text-foreground"
                               value={run.updatedAt}
@@ -686,9 +631,7 @@ export default function TaskRuns() {
                           <Show when={run.completedAt}>
                             {(completedAt) => (
                               <span class="inline-flex items-center gap-1">
-                                <span class="text-muted-foreground opacity-80">
-                                  Completed:
-                                </span>
+                                <span class="text-muted-foreground opacity-80">Completed:</span>
                                 <RelativeTimestamp
                                   class="font-medium text-foreground"
                                   value={completedAt()}
@@ -757,8 +700,8 @@ export default function TaskRuns() {
           <DialogHeader>
             <DialogTitle>Retry failed task</DialogTitle>
             <DialogDescription>
-              Choose how you want to retry this task. You can retry in place or
-              spawn a new task using the original inputs.
+              Choose how you want to retry this task. You can retry in place or spawn a new task
+              using the original inputs.
             </DialogDescription>
           </DialogHeader>
 
@@ -777,8 +720,8 @@ export default function TaskRuns() {
               <span>
                 <span class="font-medium">Spawn as new task</span>
                 <span class="block text-xs text-muted-foreground">
-                  Creates a brand new task with copied inputs instead of
-                  extending the existing failed task.
+                  Creates a brand new task with copied inputs instead of extending the existing
+                  failed task.
                 </span>
               </span>
             </label>
@@ -793,9 +736,7 @@ export default function TaskRuns() {
                 min="1"
                 step="1"
                 value={retryMaxAttemptsInput()}
-                onInput={(event) =>
-                  setRetryMaxAttemptsInput(event.currentTarget.value)
-                }
+                onInput={(event) => setRetryMaxAttemptsInput(event.currentTarget.value)}
                 placeholder={String(retryDefaultValue())}
                 class="w-full rounded-md border bg-background px-3 py-2 text-sm"
               />
@@ -819,11 +760,7 @@ export default function TaskRuns() {
             >
               Cancel
             </Button>
-            <Button
-              variant="secondary"
-              onClick={handleRetry}
-              disabled={retryInFlight() !== null}
-            >
+            <Button variant="secondary" onClick={handleRetry} disabled={retryInFlight() !== null}>
               {retryInFlight() !== null ? "Retrying…" : "Retry"}
             </Button>
           </DialogFooter>

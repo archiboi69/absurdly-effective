@@ -7,27 +7,12 @@ import {
   createSignal,
   onCleanup,
 } from "solid-js";
-import {
-  type QueueSummary,
-  type QueueEvent,
-  fetchQueues,
-  fetchEvents,
-} from "@/lib/api";
+import { type QueueSummary, type QueueEvent, fetchQueues, fetchEvents } from "@/lib/api";
 import { useSearchParams, type NavigateOptions } from "@solidjs/router";
 import { Button } from "@/components/ui/button";
 import { AutoRefreshToggle } from "@/components/AutoRefreshToggle";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  TextField,
-  TextFieldLabel,
-  TextFieldRoot,
-} from "@/components/ui/textfield";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TextField, TextFieldLabel, TextFieldRoot } from "@/components/ui/textfield";
 import {
   Select,
   SelectContent,
@@ -59,9 +44,7 @@ export default function EventLog() {
   const [queueFilter, setQueueFilter] = createSignal<string | null>(
     normalizeNullableParam(getParam("queue")),
   );
-  const [eventNameFilter, setEventNameFilter] = createSignal<string>(
-    getParam("eventName") ?? "",
-  );
+  const [eventNameFilter, setEventNameFilter] = createSignal<string>(getParam("eventName") ?? "");
   const [timeRange, setTimeRange] = createSignal<TimeRange>({});
   const initialTimeParams = (): TimeSelectionParams => ({
     time: getParam("time"),
@@ -71,8 +54,7 @@ export default function EventLog() {
     before: getParam("before"),
   });
 
-  const [queues, { refetch: refetchQueues }] =
-    createResource<QueueSummary[]>(fetchQueues);
+  const [queues, { refetch: refetchQueues }] = createResource<QueueSummary[]>(fetchQueues);
   const [queuesError, setQueuesError] = createSignal<string | null>(null);
   const [eventsError, setEventsError] = createSignal<string | null>(null);
 
@@ -133,9 +115,7 @@ export default function EventLog() {
       return;
     }
     const message =
-      error instanceof Error
-        ? error.message
-        : String(error ?? "Failed to load queues.");
+      error instanceof Error ? error.message : String(error ?? "Failed to load queues.");
     setQueuesError(message);
   });
 
@@ -169,9 +149,7 @@ export default function EventLog() {
       return;
     }
     const message =
-      error instanceof Error
-        ? error.message
-        : String(error ?? "Failed to load events.");
+      error instanceof Error ? error.message : String(error ?? "Failed to load events.");
     setEventsError(message);
   });
 
@@ -192,9 +170,7 @@ export default function EventLog() {
   };
 
   const queueOptions = createMemo(() =>
-    (queues() ?? [])
-      .map((queue) => queue.queueName)
-      .sort((a, b) => a.localeCompare(b)),
+    (queues() ?? []).map((queue) => queue.queueName).sort((a, b) => a.localeCompare(b)),
   );
 
   type FilterOption = { label: string; value: string };
@@ -255,9 +231,7 @@ export default function EventLog() {
         <Card>
           <CardHeader class="pb-2">
             <CardTitle>Filters</CardTitle>
-            <CardDescription>
-              Narrow the event list by queue and event name.
-            </CardDescription>
+            <CardDescription>Narrow the event list by queue and event name.</CardDescription>
           </CardHeader>
           <CardContent class="space-y-4">
             <div class="grid gap-4 md:grid-cols-2">
@@ -280,9 +254,7 @@ export default function EventLog() {
                 </TextFieldRoot>
               </div>
               <div class="space-y-2">
-                <p class="text-xs font-medium uppercase text-muted-foreground">
-                  Queue
-                </p>
+                <p class="text-xs font-medium uppercase text-muted-foreground">Queue</p>
                 <Select
                   multiple={false}
                   options={queueFilterOptions()}
@@ -291,8 +263,7 @@ export default function EventLog() {
                   value={selectedQueueOption()}
                   onChange={(option) => {
                     const nextValue = option?.value ?? "";
-                    const normalized =
-                      nextValue.trim().length > 0 ? nextValue : null;
+                    const normalized = nextValue.trim().length > 0 ? nextValue : null;
                     if (normalized === queueFilter()) {
                       return;
                     }
@@ -306,9 +277,7 @@ export default function EventLog() {
                   <SelectTrigger>
                     <SelectValue>
                       {(state) => {
-                        const option = state.selectedOption() as
-                          | FilterOption
-                          | undefined;
+                        const option = state.selectedOption() as FilterOption | undefined;
                         return option?.label ?? selectedQueueOption().label;
                       }}
                     </SelectValue>
@@ -330,18 +299,14 @@ export default function EventLog() {
         <Card>
           <CardHeader class="pb-2">
             <CardTitle>Event timeline</CardTitle>
-            <CardDescription>
-              Showing the most recent events matching your filters.
-            </CardDescription>
+            <CardDescription>Showing the most recent events matching your filters.</CardDescription>
           </CardHeader>
           <CardContent>
             <Show
               when={(events() ?? []).length > 0}
               fallback={
                 <p class="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-                  {events.loading
-                    ? "Loading events…"
-                    : "No events matched the selected filters."}
+                  {events.loading ? "Loading events…" : "No events matched the selected filters."}
                 </p>
               }
             >
@@ -356,15 +321,13 @@ export default function EventLog() {
                             when={event.emittedAt}
                             fallback={
                               <>
-                                Created{" "}
-                                <AbsoluteUtcTimestamp value={event.createdAt} />
+                                Created <AbsoluteUtcTimestamp value={event.createdAt} />
                               </>
                             }
                           >
                             {(emittedAt) => (
                               <>
-                                Emitted{" "}
-                                <AbsoluteUtcTimestamp value={emittedAt()} />
+                                Emitted <AbsoluteUtcTimestamp value={emittedAt()} />
                               </>
                             )}
                           </Show>{" "}

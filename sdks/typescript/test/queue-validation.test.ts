@@ -5,10 +5,7 @@ describe("Queue name validation", () => {
   test("rejects empty default queue in constructor", () => {
     const fakeCon = { query: async () => ({ rows: [] }) } as any;
 
-    assert.throws(
-      () => new Absurd({ db: fakeCon, queueName: "" }),
-      /Queue name must be provided/,
-    );
+    assert.throws(() => new Absurd({ db: fakeCon, queueName: "" }), /Queue name must be provided/);
   });
 
   test("accepts permissive queue override in createQueue", async () => {
@@ -46,9 +43,9 @@ describe("Queue name validation", () => {
     } as any;
     const absurd = new Absurd({ db: fakeCon, queueName: "default" });
 
-    await expect(
-      absurd.spawn("task", { value: 1 }, { queue: "" }),
-    ).rejects.toThrowError("Queue name must be provided");
+    await expect(absurd.spawn("task", { value: 1 }, { queue: "" })).rejects.toThrowError(
+      "Queue name must be provided",
+    );
     expect(called).toBe(0);
   });
 });

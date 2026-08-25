@@ -9,26 +9,16 @@ import {
   onMount,
 } from "solid-js";
 import { A } from "@solidjs/router";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { readStoredAutoRefreshEnabled } from "@/components/AutoRefreshToggle";
-import {
-  AbsoluteUtcTimestamp,
-  RelativeTimestamp,
-} from "@/components/Timestamp";
+import { AbsoluteUtcTimestamp, RelativeTimestamp } from "@/components/Timestamp";
 import { type QueueMetrics, fetchMetrics } from "@/lib/api";
 
 const REFRESH_INTERVAL_MS = 15_000;
 
 export default function Overview() {
-  const [metrics, { refetch: refetchMetrics }] =
-    createResource<QueueMetrics[]>(fetchMetrics);
+  const [metrics, { refetch: refetchMetrics }] = createResource<QueueMetrics[]>(fetchMetrics);
   const [metricsError, setMetricsError] = createSignal<string | null>(null);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = createSignal(false);
 
@@ -144,16 +134,13 @@ export default function Overview() {
             </div>
           </CardHeader>
           <CardContent>
-            <Show
-              when={!metrics.loading || queues().length}
-              fallback={<LoadingPlaceholder />}
-            >
+            <Show when={!metrics.loading || queues().length} fallback={<LoadingPlaceholder />}>
               <Show
                 when={queues().length > 0}
                 fallback={
                   <p class="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                    No queues discovered yet. Once workers enqueue tasks,
-                    metrics will appear automatically.
+                    No queues discovered yet. Once workers enqueue tasks, metrics will appear
+                    automatically.
                   </p>
                 }
               >
@@ -168,18 +155,14 @@ export default function Overview() {
                         <th class="px-3 py-2 font-medium">Oldest age</th>
                         <th class="px-3 py-2 font-medium">Total seen</th>
                         <th class="px-3 py-2 font-medium">Scraped</th>
-                        <th class="px-3 py-2 font-medium text-right">
-                          Actions
-                        </th>
+                        <th class="px-3 py-2 font-medium text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-border">
                       <For each={queues()}>
                         {(queue) => (
                           <tr class="hover:bg-muted/40">
-                            <td class="px-3 py-2 font-medium">
-                              {queue.queueName}
-                            </td>
+                            <td class="px-3 py-2 font-medium">{queue.queueName}</td>
                             <td class="px-3 py-2 tabular-nums">
                               {queue.queueLength.toLocaleString()}
                             </td>
@@ -187,16 +170,10 @@ export default function Overview() {
                               {queue.queueVisibleLength.toLocaleString()}
                             </td>
                             <td class="px-3 py-2">
-                              <RelativeTimestamp
-                                value={queue.newestMsgAt}
-                                variant="long"
-                              />
+                              <RelativeTimestamp value={queue.newestMsgAt} variant="long" />
                             </td>
                             <td class="px-3 py-2">
-                              <RelativeTimestamp
-                                value={queue.oldestMsgAt}
-                                variant="long"
-                              />
+                              <RelativeTimestamp value={queue.oldestMsgAt} variant="long" />
                             </td>
                             <td class="px-3 py-2 tabular-nums">
                               {queue.totalMessages.toLocaleString()}
@@ -242,11 +219,7 @@ export default function Overview() {
   );
 }
 
-function StatCard(props: {
-  title: string;
-  value: string;
-  description: string;
-}) {
+function StatCard(props: { title: string; value: string; description: string }) {
   return (
     <Card>
       <CardHeader class="pb-2">

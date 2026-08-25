@@ -15,16 +15,13 @@ interface TaskDetailViewProps {
 }
 
 export function TaskDetailView(props: TaskDetailViewProps) {
-  const containerClass =
-    props.variant === "compact" ? "px-4 pb-4 pt-0 space-y-2" : "p-6 space-y-4";
+  const containerClass = props.variant === "compact" ? "px-4 pb-4 pt-0 space-y-2" : "p-6 space-y-4";
 
   return (
     <div class={containerClass}>
       <Show
         when={props.detail}
-        fallback={
-          <div class="text-sm text-muted-foreground">Loading details...</div>
-        }
+        fallback={<div class="text-sm text-muted-foreground">Loading details...</div>}
       >
         {(detail) => (
           <DetailContent
@@ -100,15 +97,9 @@ function DetailContent(props: {
               <div class="flex gap-2">
                 <dt class="text-muted-foreground w-32">Task ID:</dt>
                 <dd>
-                  <Show
-                    when={props.taskLink}
-                    fallback={<IdDisplay value={props.detail.taskId} />}
-                  >
+                  <Show when={props.taskLink} fallback={<IdDisplay value={props.detail.taskId} />}>
                     {(link) => (
-                      <A
-                        href={link()}
-                        class="inline-flex items-center gap-1 hover:underline"
-                      >
+                      <A href={link()} class="inline-flex items-center gap-1 hover:underline">
                         <IdDisplay value={props.detail.taskId} />
                       </A>
                     )}
@@ -152,15 +143,9 @@ function DetailContent(props: {
               {(wait) => (
                 <div class="rounded border p-3 space-y-2">
                   <div class="flex flex-wrap items-center gap-2">
-                    <span class="font-medium text-sm">
-                      {formatWaitType(wait.waitType)}
-                    </span>
+                    <span class="font-medium text-sm">{formatWaitType(wait.waitType)}</span>
                     <Show when={wait.stepName}>
-                      {(step) => (
-                        <code class="rounded bg-muted px-1 text-xs">
-                          {step()}
-                        </code>
-                      )}
+                      {(step) => <code class="rounded bg-muted px-1 text-xs">{step()}</code>}
                     </Show>
                   </div>
                   <dl class="space-y-1 text-xs">
@@ -173,9 +158,7 @@ function DetailContent(props: {
                     <Show when={wait.wakeEvent}>
                       {(eventName) => (
                         <div class="flex gap-2">
-                          <dt class="text-muted-foreground w-32">
-                            Wake event:
-                          </dt>
+                          <dt class="text-muted-foreground w-32">Wake event:</dt>
                           <dd class="break-all">{eventName()}</dd>
                         </div>
                       )}
@@ -260,15 +243,12 @@ function DetailContent(props: {
               {(checkpoint) => (
                 <div class="border rounded p-3">
                   <div class="flex items-center gap-2 mb-2">
-                    <span class="font-medium text-sm">
-                      {checkpoint.stepName}
-                    </span>
+                    <span class="font-medium text-sm">{checkpoint.stepName}</span>
                     <TaskStatusBadge status={checkpoint.status} />
                   </div>
                   <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mb-2">
                     <span>
-                      Updated{" "}
-                      <AbsoluteUtcTimestamp value={checkpoint.updatedAt} />
+                      Updated <AbsoluteUtcTimestamp value={checkpoint.updatedAt} />
                     </span>
                     <Show when={checkpoint.expiresAt}>
                       {(expires) => (
@@ -278,10 +258,7 @@ function DetailContent(props: {
                       )}
                     </Show>
                   </div>
-                  <JSONViewer
-                    data={checkpoint.state}
-                    collapseAll={collapseAllPayloads()}
-                  />
+                  <JSONViewer data={checkpoint.state} collapseAll={collapseAllPayloads()} />
                 </div>
               )}
             </For>

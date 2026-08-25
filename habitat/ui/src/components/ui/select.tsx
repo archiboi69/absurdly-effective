@@ -1,10 +1,6 @@
 import { cn } from "@/lib/cn";
 import type { PolymorphicProps } from "@kobalte/core/polymorphic";
-import type {
-  SelectContentProps,
-  SelectItemProps,
-  SelectTriggerProps,
-} from "@kobalte/core/select";
+import type { SelectContentProps, SelectItemProps, SelectTriggerProps } from "@kobalte/core/select";
 import { Select as SelectPrimitive } from "@kobalte/core/select";
 import type { ParentProps, ValidComponent } from "solid-js";
 import { splitProps } from "solid-js";
@@ -24,10 +20,7 @@ type selectTriggerProps<T extends ValidComponent = "button"> = ParentProps<
 export const SelectTrigger = <T extends ValidComponent = "button">(
   props: PolymorphicProps<T, selectTriggerProps<T>>,
 ) => {
-  const [local, rest] = splitProps(props as selectTriggerProps, [
-    "class",
-    "children",
-  ]);
+  const [local, rest] = splitProps(props as selectTriggerProps, ["class", "children"]);
 
   return (
     <SelectPrimitive.Trigger
@@ -59,10 +52,9 @@ export const SelectTrigger = <T extends ValidComponent = "button">(
   );
 };
 
-type selectContentProps<T extends ValidComponent = "div"> =
-  SelectContentProps<T> & {
-    class?: string;
-  };
+type selectContentProps<T extends ValidComponent = "div"> = SelectContentProps<T> & {
+  class?: string;
+};
 
 export const SelectContent = <T extends ValidComponent = "div">(
   props: PolymorphicProps<T, selectContentProps<T>>,
@@ -91,10 +83,7 @@ type selectItemProps<T extends ValidComponent = "li"> = ParentProps<
 export const SelectItem = <T extends ValidComponent = "li">(
   props: PolymorphicProps<T, selectItemProps<T>>,
 ) => {
-  const [local, rest] = splitProps(props as selectItemProps, [
-    "class",
-    "children",
-  ]);
+  const [local, rest] = splitProps(props as selectItemProps, ["class", "children"]);
 
   return (
     <SelectPrimitive.Item
@@ -105,11 +94,7 @@ export const SelectItem = <T extends ValidComponent = "li">(
       {...rest}
     >
       <SelectPrimitive.ItemIndicator class="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="h-4 w-4"
-          viewBox="0 0 24 24"
-        >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24">
           <path
             fill="none"
             stroke="currentColor"

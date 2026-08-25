@@ -14,10 +14,9 @@ import { buttonVariants } from "./button";
 
 export const PaginationItems = PaginationPrimitive.Items;
 
-type paginationProps<T extends ValidComponent = "nav"> =
-  PaginationRootProps<T> & {
-    class?: string;
-  };
+type paginationProps<T extends ValidComponent = "nav"> = PaginationRootProps<T> & {
+  class?: string;
+};
 
 export const Pagination = <T extends ValidComponent = "nav">(
   props: PolymorphicProps<T, paginationProps<T>>,
@@ -35,23 +34,18 @@ export const Pagination = <T extends ValidComponent = "nav">(
   );
 };
 
-type paginationItemProps<T extends ValidComponent = "button"> =
-  PaginationItemProps<T> &
-    Pick<VariantProps<typeof buttonVariants>, "size"> & {
-      class?: string;
-      children?: JSX.Element;
-    };
+type paginationItemProps<T extends ValidComponent = "button"> = PaginationItemProps<T> &
+  Pick<VariantProps<typeof buttonVariants>, "size"> & {
+    class?: string;
+    children?: JSX.Element;
+  };
 
 export const PaginationItem = <T extends ValidComponent = "button">(
   props: PolymorphicProps<T, paginationItemProps<T>>,
 ) => {
   // @ts-expect-error - required `page`
   const merge = mergeProps<paginationItemProps[]>({ size: "icon" }, props);
-  const [local, rest] = splitProps(merge as paginationItemProps, [
-    "class",
-    "size",
-    "children",
-  ]);
+  const [local, rest] = splitProps(merge as paginationItemProps, ["class", "size", "children"]);
 
   return (
     <PaginationPrimitive.Item
@@ -86,11 +80,7 @@ export const PaginationEllipsis = <T extends ValidComponent = "div">(
       class={cn("flex h-9 w-9 items-center justify-center", local.class)}
       {...rest}
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        class="h-4 w-4"
-      >
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-4 w-4">
         <path
           fill="none"
           stroke="currentColor"
@@ -105,23 +95,16 @@ export const PaginationEllipsis = <T extends ValidComponent = "div">(
   );
 };
 
-type paginationPreviousProps<T extends ValidComponent = "button"> =
-  PaginationPreviousProps<T> &
-    Pick<VariantProps<typeof buttonVariants>, "size"> & {
-      class?: string;
-    };
+type paginationPreviousProps<T extends ValidComponent = "button"> = PaginationPreviousProps<T> &
+  Pick<VariantProps<typeof buttonVariants>, "size"> & {
+    class?: string;
+  };
 
 export const PaginationPrevious = <T extends ValidComponent = "button">(
   props: PolymorphicProps<T, paginationPreviousProps<T>>,
 ) => {
-  const merge = mergeProps<paginationPreviousProps<T>[]>(
-    { size: "icon" },
-    props,
-  );
-  const [local, rest] = splitProps(merge as paginationPreviousProps, [
-    "class",
-    "size",
-  ]);
+  const merge = mergeProps<paginationPreviousProps<T>[]>({ size: "icon" }, props);
+  const [local, rest] = splitProps(merge as paginationPreviousProps, ["class", "size"]);
 
   return (
     <PaginationPrimitive.Previous
@@ -135,11 +118,7 @@ export const PaginationPrevious = <T extends ValidComponent = "button">(
       )}
       {...rest}
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        class="h-4 w-4"
-      >
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-4 w-4">
         <path
           fill="none"
           stroke="currentColor"
@@ -154,17 +133,13 @@ export const PaginationPrevious = <T extends ValidComponent = "button">(
   );
 };
 
-type paginationNextProps<T extends ValidComponent = "button"> =
-  paginationPreviousProps<T>;
+type paginationNextProps<T extends ValidComponent = "button"> = paginationPreviousProps<T>;
 
 export const PaginationNext = <T extends ValidComponent = "button">(
   props: PolymorphicProps<T, paginationNextProps<T>>,
 ) => {
   const merge = mergeProps<paginationNextProps<T>[]>({ size: "icon" }, props);
-  const [local, rest] = splitProps(merge as paginationNextProps, [
-    "class",
-    "size",
-  ]);
+  const [local, rest] = splitProps(merge as paginationNextProps, ["class", "size"]);
 
   return (
     <PaginationPrimitive.Next
@@ -178,11 +153,7 @@ export const PaginationNext = <T extends ValidComponent = "button">(
       )}
       {...rest}
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="h-4 w-4"
-        viewBox="0 0 24 24"
-      >
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24">
         <path
           fill="none"
           stroke="currentColor"

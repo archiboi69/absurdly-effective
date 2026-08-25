@@ -201,9 +201,7 @@ describe("Step functionality", () => {
         const results: number[] = [];
         for (let i = 0; i < 3; i++) {
           const handle = await ctx.beginStep<number>("loop-step");
-          const value = handle.done
-            ? handle.state
-            : await ctx.completeStep(handle, i * 10);
+          const value = handle.done ? handle.state : await ctx.completeStep(handle, i * 10);
           results.push(value);
         }
         return { results };
@@ -295,27 +293,19 @@ describe("Step functionality", () => {
 
     const durationSeconds = 10;
     let executions = 0;
-    absurd.registerTask(
-      { name: "sleep-for-db-clock" },
-      async (_params, ctx) => {
-        executions++;
-        await ctx.sleepFor("wait-for", durationSeconds);
-        return { resumed: true };
-      },
-    );
+    absurd.registerTask({ name: "sleep-for-db-clock" }, async (_params, ctx) => {
+      executions++;
+      await ctx.sleepFor("wait-for", durationSeconds);
+      return { resumed: true };
+    });
 
-    const { taskID, runID } = await absurd.spawn(
-      "sleep-for-db-clock",
-      undefined,
-    );
+    const { taskID, runID } = await absurd.spawn("sleep-for-db-clock", undefined);
     await absurd.workBatch("worker-sleep-db-clock", 120, 1);
     expect(executions).toBe(1);
 
     const sleepingRun = await ctx.getRun(runID);
     expect(sleepingRun).toMatchObject({ state: "sleeping" });
-    expect(sleepingRun?.available_at?.getTime()).toBe(
-      dbNow.getTime() + durationSeconds * 1000,
-    );
+    expect(sleepingRun?.available_at?.getTime()).toBe(dbNow.getTime() + durationSeconds * 1000);
 
     const checkpointRow = await ctx.pool.query<{ state: string }>(
       `SELECT state FROM absurd.c_${ctx.queueName} WHERE task_id = $1 AND checkpoint_name = 'wait-for'`,

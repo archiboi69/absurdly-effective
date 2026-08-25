@@ -19,16 +19,13 @@ describe("Retry and cancellation", () => {
   test("fail run without strategy requeues immediately", async () => {
     let attempts = 0;
 
-    absurd.registerTask(
-      { name: "no-strategy", defaultMaxAttempts: 3 },
-      async () => {
-        attempts++;
-        if (attempts < 2) {
-          throw new Error("boom");
-        }
-        return { attempts };
-      },
-    );
+    absurd.registerTask({ name: "no-strategy", defaultMaxAttempts: 3 }, async () => {
+      attempts++;
+      if (attempts < 2) {
+        throw new Error("boom");
+      }
+      return { attempts };
+    });
 
     const { taskID } = await absurd.spawn("no-strategy", { payload: 1 });
 
@@ -127,12 +124,9 @@ describe("Retry and cancellation", () => {
   });
 
   test("task fails permanently after max attempts exhausted", async () => {
-    absurd.registerTask(
-      { name: "always-fail", defaultMaxAttempts: 2 },
-      async () => {
-        throw new Error("always fails");
-      },
-    );
+    absurd.registerTask({ name: "always-fail", defaultMaxAttempts: 2 }, async () => {
+      throw new Error("always fails");
+    });
 
     const { taskID } = await absurd.spawn("always-fail", undefined);
 
@@ -149,12 +143,9 @@ describe("Retry and cancellation", () => {
   });
 
   test("retryTask defaults to one additional attempt", async () => {
-    absurd.registerTask(
-      { name: "retry-default", defaultMaxAttempts: 1 },
-      async () => {
-        throw new Error("always fails");
-      },
-    );
+    absurd.registerTask({ name: "retry-default", defaultMaxAttempts: 1 }, async () => {
+      throw new Error("always fails");
+    });
 
     const spawned = await absurd.spawn("retry-default", { payload: 1 });
     await absurd.workBatch("worker1", 60, 1);
@@ -285,13 +276,10 @@ describe("Retry and cancellation", () => {
   });
 
   test("executeTask swallows AB002 from heartbeat on failed run", async () => {
-    absurd.registerTask(
-      { name: "failed-heartbeat" },
-      async (_params, taskCtx) => {
-        await taskCtx.heartbeat(30);
-        return { ok: true };
-      },
-    );
+    absurd.registerTask({ name: "failed-heartbeat" }, async (_params, taskCtx) => {
+      await taskCtx.heartbeat(30);
+      return { ok: true };
+    });
 
     const { runID } = await absurd.spawn("failed-heartbeat", { data: 1 });
     const [claim] = await absurd.claimTasks({
@@ -314,13 +302,10 @@ describe("Retry and cancellation", () => {
   });
 
   test("executeTask swallows AB002 from checkpoint writes on failed run", async () => {
-    absurd.registerTask(
-      { name: "failed-checkpoint" },
-      async (_params, taskCtx) => {
-        await taskCtx.step("persist", async () => ({ value: 1 }));
-        return { ok: true };
-      },
-    );
+    absurd.registerTask({ name: "failed-checkpoint" }, async (_params, taskCtx) => {
+      await taskCtx.step("persist", async () => ({ value: 1 }));
+      return { ok: true };
+    });
 
     const { taskID, runID } = await absurd.spawn("failed-checkpoint", {
       data: 1,
@@ -408,17 +393,14 @@ describe("Retry and cancellation", () => {
     await absurd.cancelTask(taskID);
 
     await expect(
-      ctx.pool.query(
-        `SELECT absurd.set_task_checkpoint_state($1, $2, $3, $4, $5, $6)`,
-        [
-          ctx.queueName,
-          taskID,
-          "step-1",
-          JSON.stringify({ result: "value" }),
-          claim.run_id,
-          60,
-        ],
-      ),
+      ctx.pool.query(`SELECT absurd.set_task_checkpoint_state($1, $2, $3, $4, $5, $6)`, [
+        ctx.queueName,
+        taskID,
+        "step-1",
+        JSON.stringify({ result: "value" }),
+        claim.run_id,
+        60,
+      ]),
     ).rejects.toHaveProperty("code", "AB001");
   });
 
@@ -461,11 +443,7 @@ describe("Retry and cancellation", () => {
     await absurd.cancelTask(taskID);
 
     await expect(
-      ctx.pool.query(`SELECT absurd.extend_claim($1, $2, $3)`, [
-        ctx.queueName,
-        claim.run_id,
-        30,
-      ]),
+      ctx.pool.query(`SELECT absurd.extend_claim($1, $2, $3)`, [ctx.queueName, claim.run_id, 30]),
     ).rejects.toHaveProperty("code", "AB001");
   });
 
@@ -481,9 +459,7 @@ describe("Retry and cancellation", () => {
 
     await absurd.cancelTask(taskID);
     const second = await ctx.getTask(taskID);
-    expect(second?.cancelled_at?.getTime()).toBe(
-      first?.cancelled_at?.getTime(),
-    );
+    expect(second?.cancelled_at?.getTime()).toBe(first?.cancelled_at?.getTime());
   });
 
   test("cancelling completed task is a no-op", async () => {
@@ -502,12 +478,9 @@ describe("Retry and cancellation", () => {
   });
 
   test("cancelling failed task is a no-op", async () => {
-    absurd.registerTask(
-      { name: "failed-cancel", defaultMaxAttempts: 1 },
-      async () => {
-        throw new Error("boom");
-      },
-    );
+    absurd.registerTask({ name: "failed-cancel", defaultMaxAttempts: 1 }, async () => {
+      throw new Error("boom");
+    });
 
     const { taskID } = await absurd.spawn("failed-cancel", { data: 1 });
     await absurd.workBatch("worker-1", 60, 1);
@@ -552,8 +525,8 @@ describe("Retry and cancellation", () => {
   });
 
   test("cancel non-existent task errors", async () => {
-    await expect(
-      absurd.cancelTask("019a32d3-8425-7ae2-a5af-2f17a6707666"),
-    ).rejects.toThrow(/not found/i);
+    await expect(absurd.cancelTask("019a32d3-8425-7ae2-a5af-2f17a6707666")).rejects.toThrow(
+      /not found/i,
+    );
   });
 });

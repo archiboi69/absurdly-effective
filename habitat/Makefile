@@ -19,8 +19,8 @@ $(DIST_DIR): ## Ensure dist dir exists (full build or placeholder)
 build: build-ui build-backend ## Build UI assets and Go binary
 
 build-ui: ## Compile the Solid dashboard bundle
-	cd $(UI_DIR) && npm install
-	cd $(UI_DIR) && npm run build
+	cd $(UI_DIR) && vp install
+	cd $(UI_DIR) && vp run build
 
 build-backend: ## Build the Habitat dashboard server binary
 	@mkdir -p $(BIN_DIR)

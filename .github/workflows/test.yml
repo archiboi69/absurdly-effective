@@ -20,14 +20,15 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@v1.18.0
         with:
           node-version: '24'
+          cache: true
 
       - name: Install TypeScript dependencies
         working-directory: sdks/typescript
-        run: npm ci
+        run: vp install
 
       - name: Run checks
         run: make check

@@ -25,14 +25,11 @@ describe("Worker", () => {
     gate.on("arrived", (id: number) => atGate.add(id));
     gate.on("left", (id: number) => atGate.delete(id));
 
-    absurd.registerTask<{ id: number }, void>(
-      { name: "gated-task" },
-      async (params) => {
-        gate.emit("arrived", params.id);
-        await once(gate, "release");
-        gate.emit("left", params.id);
-      },
-    );
+    absurd.registerTask<{ id: number }, void>({ name: "gated-task" }, async (params) => {
+      gate.emit("arrived", params.id);
+      await once(gate, "release");
+      gate.emit("left", params.id);
+    });
 
     for (let i = 1; i <= 5; i++) {
       await absurd.spawn("gated-task", { id: i });
@@ -52,9 +49,7 @@ describe("Worker", () => {
     });
 
     expect(claimSpy).toHaveBeenCalledTimes(1);
-    expect(claimSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ batchSize: concurrency }),
-    );
+    expect(claimSpy).toHaveBeenCalledWith(expect.objectContaining({ batchSize: concurrency }));
 
     // Wait for ~5 poll cycles
     await ctx.sleep(50);
@@ -75,14 +70,11 @@ describe("Worker", () => {
     gate.on("arrived", (id: number) => atGate.add(id));
     gate.on("left", (id: number) => atGate.delete(id));
 
-    absurd.registerTask<{ id: number }, void>(
-      { name: "responsive-task" },
-      async (params) => {
-        gate.emit("arrived", params.id);
-        await once(gate, "release");
-        gate.emit("left", params.id);
-      },
-    );
+    absurd.registerTask<{ id: number }, void>({ name: "responsive-task" }, async (params) => {
+      gate.emit("arrived", params.id);
+      await once(gate, "release");
+      gate.emit("left", params.id);
+    });
 
     for (let i = 1; i <= 3; i++) {
       await absurd.spawn("responsive-task", { id: i });
@@ -121,13 +113,10 @@ describe("Worker", () => {
 
     gate.on("started", (id: number) => started.push(id));
 
-    absurd.registerTask<{ id: number }, void>(
-      { name: "shutdown-task" },
-      async (params) => {
-        gate.emit("started", params.id);
-        await once(gate, "release");
-      },
-    );
+    absurd.registerTask<{ id: number }, void>({ name: "shutdown-task" }, async (params) => {
+      gate.emit("started", params.id);
+      await once(gate, "release");
+    });
 
     await absurd.spawn("shutdown-task", { id: 1 });
     await absurd.spawn("shutdown-task", { id: 2 });
@@ -163,21 +152,16 @@ describe("Worker", () => {
     absurd.registerTask<void, void>({ name: "test-task" }, async () => {});
     await absurd.spawn("test-task", undefined);
 
-    vi.spyOn(absurd, "executeTask").mockRejectedValueOnce(
-      new Error("Execute failed, PG error"),
-    );
+    vi.spyOn(absurd, "executeTask").mockRejectedValueOnce(new Error("Execute failed, PG error"));
 
     const worker = await absurd.startWorker({
       pollInterval: 0.01,
       onError: (err) => errors.push(err.message),
     });
 
-    await vi.waitFor(
-      () => expect(errors).toContain("Execute failed, PG error"),
-      {
-        timeout: 200,
-      },
-    );
+    await vi.waitFor(() => expect(errors).toContain("Execute failed, PG error"), {
+      timeout: 200,
+    });
 
     vi.spyOn(absurd, "claimTasks").mockRejectedValue(new Error("Claim failed"));
 

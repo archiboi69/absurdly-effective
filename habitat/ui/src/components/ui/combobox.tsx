@@ -47,10 +47,7 @@ type comboboxTriggerProps<T extends ValidComponent = "button"> = ParentProps<
 export const ComboboxTrigger = <T extends ValidComponent = "button">(
   props: PolymorphicProps<T, comboboxTriggerProps<T>>,
 ) => {
-  const [local, rest] = splitProps(props as comboboxTriggerProps, [
-    "class",
-    "children",
-  ]);
+  const [local, rest] = splitProps(props as comboboxTriggerProps, ["class", "children"]);
 
   return (
     <ComboboxPrimitive.Control>
@@ -63,11 +60,7 @@ export const ComboboxTrigger = <T extends ValidComponent = "button">(
       >
         {local.children}
         <ComboboxPrimitive.Icon class="flex h-3.5 w-3.5 items-center justify-center">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            class="h-4 w-4 opacity-50"
-          >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-4 w-4 opacity-50">
             <path
               fill="none"
               stroke="currentColor"
@@ -84,10 +77,9 @@ export const ComboboxTrigger = <T extends ValidComponent = "button">(
   );
 };
 
-type comboboxContentProps<T extends ValidComponent = "div"> =
-  ComboboxContentProps<T> & {
-    class?: string;
-  };
+type comboboxContentProps<T extends ValidComponent = "div"> = ComboboxContentProps<T> & {
+  class?: string;
+};
 
 export const ComboboxContent = <T extends ValidComponent = "div">(
   props: PolymorphicProps<T, comboboxContentProps<T>>,
@@ -118,10 +110,7 @@ type comboboxItemProps<T extends ValidComponent = "li"> = ParentProps<
 export const ComboboxItem = <T extends ValidComponent = "li">(
   props: PolymorphicProps<T, comboboxItemProps<T>>,
 ) => {
-  const [local, rest] = splitProps(props as comboboxItemProps, [
-    "class",
-    "children",
-  ]);
+  const [local, rest] = splitProps(props as comboboxItemProps, ["class", "children"]);
 
   return (
     <ComboboxPrimitive.Item
@@ -132,11 +121,7 @@ export const ComboboxItem = <T extends ValidComponent = "li">(
       {...rest}
     >
       <ComboboxPrimitive.ItemIndicator class="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          class="h-4 w-4"
-        >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-4 w-4">
           <path
             fill="none"
             stroke="currentColor"
@@ -148,9 +133,7 @@ export const ComboboxItem = <T extends ValidComponent = "li">(
           <title>Checked</title>
         </svg>
       </ComboboxPrimitive.ItemIndicator>
-      <ComboboxPrimitive.ItemLabel>
-        {local.children}
-      </ComboboxPrimitive.ItemLabel>
+      <ComboboxPrimitive.ItemLabel>{local.children}</ComboboxPrimitive.ItemLabel>
     </ComboboxPrimitive.Item>
   );
 };

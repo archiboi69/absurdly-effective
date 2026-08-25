@@ -21,13 +21,8 @@ console.log("spawned:", spawned);
 console.log("current snapshot:", await app.fetchTaskResult(spawned.taskID));
 
 if (shouldAwait) {
-  console.log(
-    `waiting for completion; emit user-activated:${userID} on queue default`,
-  );
-  console.log(
-    "final snapshot:",
-    await app.awaitTaskResult(spawned.taskID, { timeout: 300 }),
-  );
+  console.log(`waiting for completion; emit user-activated:${userID} on queue default`);
+  console.log("final snapshot:", await app.awaitTaskResult(spawned.taskID, { timeout: 300 }));
 }
 
 await app.close();

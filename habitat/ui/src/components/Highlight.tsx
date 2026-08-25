@@ -48,9 +48,7 @@ export function Highlight(props: HighlightProps) {
       <For each={parts()}>
         {(part) => (
           <Show when={part.isMatch} fallback={<>{part.text}</>}>
-            <mark class="bg-yellow-300 dark:bg-yellow-600 rounded px-0.5">
-              {part.text}
-            </mark>
+            <mark class="bg-yellow-300 dark:bg-yellow-600 rounded px-0.5">{part.text}</mark>
           </Show>
         )}
       </For>

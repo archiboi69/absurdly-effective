@@ -27,13 +27,9 @@ app.registerTask<ProvisionUserParams>(
     });
 
     // Demo only: fail once after the first checkpoint so the retry behavior is visible.
-    const outage = await ctx.beginStep<{ simulated: boolean }>(
-      "demo-transient-outage",
-    );
+    const outage = await ctx.beginStep<{ simulated: boolean }>("demo-transient-outage");
     if (!outage.done) {
-      console.log(
-        `[${ctx.taskID}] simulating a temporary email provider outage`,
-      );
+      console.log(`[${ctx.taskID}] simulating a temporary email provider outage`);
       await ctx.completeStep(outage, { simulated: true });
       throw new Error("temporary email provider outage");
     }

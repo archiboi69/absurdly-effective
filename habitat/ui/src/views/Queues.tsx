@@ -1,18 +1,8 @@
 import { A } from "@solidjs/router";
-import {
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-} from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js";
 import { type QueueSummary, fetchQueues } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import {
-  AbsoluteUtcTimestamp,
-  RelativeTimestamp,
-} from "@/components/Timestamp";
+import { AbsoluteUtcTimestamp, RelativeTimestamp } from "@/components/Timestamp";
 import {
   Card,
   CardContent,
@@ -25,8 +15,7 @@ import {
 export default function Queues() {
   const [queuesError, setQueuesError] = createSignal<string | null>(null);
 
-  const [queues, { refetch: refetchQueues }] =
-    createResource<QueueSummary[]>(fetchQueues);
+  const [queues, { refetch: refetchQueues }] = createResource<QueueSummary[]>(fetchQueues);
 
   createEffect(() => {
     const error = queues.error;
@@ -35,9 +24,7 @@ export default function Queues() {
       return;
     }
     const message =
-      error instanceof Error
-        ? error.message
-        : String(error ?? "Failed to load queues.");
+      error instanceof Error ? error.message : String(error ?? "Failed to load queues.");
     setQueuesError(message);
   });
 
@@ -80,9 +67,7 @@ export default function Queues() {
             <Card>
               <CardContent>
                 <p class="min-h-[160px] py-8 text-center text-sm text-muted-foreground">
-                  {queues.loading
-                    ? "Loading queues…"
-                    : "No queues have been registered yet."}
+                  {queues.loading ? "Loading queues…" : "No queues have been registered yet."}
                 </p>
               </CardContent>
             </Card>
@@ -95,9 +80,7 @@ export default function Queues() {
                   <Card class="border-border/70">
                     <CardHeader class="space-y-2 pb-3 pt-4">
                       <div class="flex items-start justify-between gap-2">
-                        <CardTitle class="text-base">
-                          {queue.queueName}
-                        </CardTitle>
+                        <CardTitle class="text-base">{queue.queueName}</CardTitle>
                         <RelativeTimestamp
                           class="text-xs text-muted-foreground"
                           value={queue.createdAt}
@@ -112,19 +95,10 @@ export default function Queues() {
                       <div class="grid grid-cols-2 gap-2 text-xs">
                         <StatBlock label="Pending" value={queue.pendingCount} />
                         <StatBlock label="Running" value={queue.runningCount} />
-                        <StatBlock
-                          label="Sleeping"
-                          value={queue.sleepingCount}
-                        />
-                        <StatBlock
-                          label="Completed"
-                          value={queue.completedCount}
-                        />
+                        <StatBlock label="Sleeping" value={queue.sleepingCount} />
+                        <StatBlock label="Completed" value={queue.completedCount} />
                         <StatBlock label="Failed" value={queue.failedCount} />
-                        <StatBlock
-                          label="Cancelled"
-                          value={queue.cancelledCount}
-                        />
+                        <StatBlock label="Cancelled" value={queue.cancelledCount} />
                       </div>
                     </CardContent>
                     <CardFooter class="gap-3 pb-4 pt-0">
@@ -162,12 +136,8 @@ export default function Queues() {
 function StatBlock(props: { label: string; value: number }) {
   return (
     <div class="rounded-md border border-border/60 p-2">
-      <div class="text-[10px] uppercase text-muted-foreground">
-        {props.label}
-      </div>
-      <div class="text-base font-semibold tabular-nums">
-        {props.value.toLocaleString()}
-      </div>
+      <div class="text-[10px] uppercase text-muted-foreground">{props.label}</div>
+      <div class="text-base font-semibold tabular-nums">{props.value.toLocaleString()}</div>
     </div>
   );
 }

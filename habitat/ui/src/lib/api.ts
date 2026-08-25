@@ -174,9 +174,7 @@ export interface TaskListQuery {
   perPage?: number;
 }
 
-export async function fetchTasks(
-  filters: TaskListQuery = {},
-): Promise<TaskListResponse> {
+export async function fetchTasks(filters: TaskListQuery = {}): Promise<TaskListResponse> {
   const params = new URLSearchParams();
   const search = filters.search?.trim();
   if (search) {
@@ -236,9 +234,7 @@ export interface RetryTaskInput {
   extraAttempts?: number;
 }
 
-export async function retryTask(
-  input: RetryTaskInput,
-): Promise<RetryTaskResult> {
+export async function retryTask(input: RetryTaskInput): Promise<RetryTaskResult> {
   return handleResponse<RetryTaskResult>(
     await fetch(apiURL("/tasks/retry"), {
       method: "POST",
@@ -259,9 +255,7 @@ export async function fetchQueues(): Promise<QueueSummary[]> {
   );
 }
 
-export async function fetchQueueTasks(
-  queueName: string,
-): Promise<TaskSummary[]> {
+export async function fetchQueueTasks(queueName: string): Promise<TaskSummary[]> {
   return handleResponse<TaskSummary[]>(
     await fetch(apiURL(`/queues/${queueName}/tasks`), {
       headers: defaultHeaders,
@@ -304,9 +298,7 @@ export interface EventLogFilters {
   limit?: number;
 }
 
-export async function fetchEvents(
-  filters: EventLogFilters = {},
-): Promise<QueueEvent[]> {
+export async function fetchEvents(filters: EventLogFilters = {}): Promise<QueueEvent[]> {
   const params = new URLSearchParams();
   if (filters.queue) {
     params.set("queue", filters.queue);

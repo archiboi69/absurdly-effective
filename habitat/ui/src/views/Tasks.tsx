@@ -9,13 +9,7 @@ import {
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useSearchParams, type NavigateOptions } from "@solidjs/router";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   type FailedRunScope,
@@ -30,11 +24,7 @@ import { AutoRefreshToggle } from "@/components/AutoRefreshToggle";
 import { RelativeTimestamp } from "@/components/Timestamp";
 import { TaskDetailView } from "@/components/TaskDetailView";
 import { Highlight } from "@/components/Highlight";
-import {
-  TextField,
-  TextFieldLabel,
-  TextFieldRoot,
-} from "@/components/ui/textfield";
+import { TextField, TextFieldLabel, TextFieldRoot } from "@/components/ui/textfield";
 import {
   Combobox,
   ComboboxContent,
@@ -64,23 +54,15 @@ interface FilterOption {
   value: string;
 }
 
-function buildFilterOptions(
-  values: string[],
-  allLabel: string,
-): FilterOption[] {
-  const uniqueValues = Array.from(new Set(values)).filter(
-    (value) => value.trim() !== "",
-  );
+function buildFilterOptions(values: string[], allLabel: string): FilterOption[] {
+  const uniqueValues = Array.from(new Set(values)).filter((value) => value.trim() !== "");
   return [
     { label: allLabel, value: "" },
     ...uniqueValues.map((value) => ({ label: value, value })),
   ];
 }
 
-function resolveSelectedOption(
-  options: FilterOption[],
-  value: string | null,
-): FilterOption {
+function resolveSelectedOption(options: FilterOption[], value: string | null): FilterOption {
   if (!options.length) {
     return { label: "", value: "" };
   }
@@ -124,12 +106,8 @@ export default function Tasks() {
     return value.trim().length === 0 ? null : value;
   };
 
-  const normalizeFailedRunScopeParam = (
-    value: string | undefined,
-  ): FailedRunScope => {
-    return value?.trim().toLowerCase() === "all"
-      ? "all"
-      : DEFAULT_FAILED_RUN_SCOPE;
+  const normalizeFailedRunScopeParam = (value: string | undefined): FailedRunScope => {
+    return value?.trim().toLowerCase() === "all" ? "all" : DEFAULT_FAILED_RUN_SCOPE;
   };
 
   const isFailedStatus = (value: string | null | undefined): boolean =>
@@ -154,9 +132,7 @@ export default function Tasks() {
   const [taskNameFilter, setTaskNameFilter] = createSignal<string | null>(
     normalizeNullableParam(getParam("taskName")),
   );
-  const [taskNameInput, setTaskNameInput] = createSignal(
-    getParam("taskName") ?? "",
-  );
+  const [taskNameInput, setTaskNameInput] = createSignal(getParam("taskName") ?? "");
   const [timeRange, setTimeRange] = createSignal<TimeRange>({});
   const initialTimeParams = (): TimeSelectionParams => ({
     time: getParam("time"),
@@ -199,8 +175,7 @@ export default function Tasks() {
       payload.status = toParamValue(updates.status);
     }
     if ("failedRunScope" in updates) {
-      payload.failedRunScope =
-        updates.failedRunScope === "all" ? "all" : undefined;
+      payload.failedRunScope = updates.failedRunScope === "all" ? "all" : undefined;
     }
     if ("taskName" in updates) {
       payload.taskName = toParamValue(updates.taskName);
@@ -215,8 +190,7 @@ export default function Tasks() {
     }
     if ("page" in updates) {
       const value = updates.page;
-      payload.page =
-        value != null && value > 1 ? String(Math.floor(value)) : undefined;
+      payload.page = value != null && value > 1 ? String(Math.floor(value)) : undefined;
     }
 
     if (Object.keys(payload).length > 0) {
@@ -241,9 +215,7 @@ export default function Tasks() {
       setStatusFilter(nextStatus);
     }
 
-    const nextFailedRunScope = normalizeFailedRunScopeParam(
-      getParam("failedRunScope"),
-    );
+    const nextFailedRunScope = normalizeFailedRunScopeParam(getParam("failedRunScope"));
     if (nextFailedRunScope !== failedRunScope()) {
       setFailedRunScope(nextFailedRunScope);
     }
@@ -287,18 +259,11 @@ export default function Tasks() {
     },
   );
 
-  const [taskList, { refetch: refetchTasks }] = createResource(
-    filters,
-    fetchTasks,
-  );
+  const [taskList, { refetch: refetchTasks }] = createResource(filters, fetchTasks);
   const [tasksError, setTasksError] = createSignal<string | null>(null);
-  const [expandedRunIds, setExpandedRunIds] = createSignal<Set<string>>(
-    new Set(),
-  );
+  const [expandedRunIds, setExpandedRunIds] = createSignal<Set<string>>(new Set());
   const [autoRefreshEnabled, setAutoRefreshEnabled] = createSignal(false);
-  const [taskDetails, setTaskDetails] = createSignal<
-    Record<string, TaskDetail>
-  >({});
+  const [taskDetails, setTaskDetails] = createSignal<Record<string, TaskDetail>>({});
 
   // Use a store with reconcile for fine-grained updates - only changed items re-render
   const [tasks, setTasks] = createStore<{ items: TaskSummary[] }>({
@@ -415,11 +380,7 @@ export default function Tasks() {
     }
   };
 
-  const applyFilter = (
-    e: MouseEvent,
-    kind: "queue" | "status" | "taskName",
-    value: string,
-  ) => {
+  const applyFilter = (e: MouseEvent, kind: "queue" | "status" | "taskName", value: string) => {
     e.stopPropagation();
     const setters: Record<string, () => void> = {
       queue: () => {
@@ -488,10 +449,7 @@ export default function Tasks() {
                 }
               }}
               onParamsChange={(tp: TimeSelectionParams) => {
-                syncSearchParams(
-                  { timeParams: tp, page: 1 },
-                  { replace: true },
-                );
+                syncSearchParams({ timeParams: tp, page: 1 }, { replace: true });
               }}
             />
             <Button
@@ -511,8 +469,8 @@ export default function Tasks() {
           <CardHeader>
             <CardTitle>Task Runs</CardTitle>
             <CardDescription>
-              Each row represents a single run. Click a run to view details or
-              open the full task history.
+              Each row represents a single run. Click a run to view details or open the full task
+              history.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -532,10 +490,7 @@ export default function Tasks() {
                         if (page() !== 1) {
                           setPage(1);
                         }
-                        syncSearchParams(
-                          { search: value, page: 1 },
-                          { replace: true },
-                        );
+                        syncSearchParams({ search: value, page: 1 }, { replace: true });
                       }
                     }}
                     placeholder="Search IDs, names, queue, or params... (Enter to search)"
@@ -587,9 +542,7 @@ export default function Tasks() {
                   </Combobox>
                 </div>
                 <div class="space-y-1">
-                  <span class="text-sm font-medium text-foreground">
-                    Status
-                  </span>
+                  <span class="text-sm font-medium text-foreground">Status</span>
                   <Select
                     multiple={false}
                     options={statusOptions()}
@@ -608,9 +561,7 @@ export default function Tasks() {
                           : DEFAULT_FAILED_RUN_SCOPE
                         : null;
                       setStatusFilter(nextValue);
-                      setFailedRunScope(
-                        nextFailedRunScope ?? DEFAULT_FAILED_RUN_SCOPE,
-                      );
+                      setFailedRunScope(nextFailedRunScope ?? DEFAULT_FAILED_RUN_SCOPE);
                       if (page() !== 1) {
                         setPage(1);
                       }
@@ -627,14 +578,8 @@ export default function Tasks() {
                     <SelectTrigger>
                       <SelectValue>
                         {(state) => {
-                          const option = state.selectedOption() as
-                            | FilterOption
-                            | undefined;
-                          return (
-                            option?.label ??
-                            selectedStatusOption()?.label ??
-                            "All statuses"
-                          );
+                          const option = state.selectedOption() as FilterOption | undefined;
+                          return option?.label ?? selectedStatusOption()?.label ?? "All statuses";
                         }}
                       </SelectValue>
                     </SelectTrigger>
@@ -642,9 +587,7 @@ export default function Tasks() {
                   </Select>
                 </div>
                 <div class="space-y-1">
-                  <span class="text-sm font-medium text-foreground">
-                    Task name (exact)
-                  </span>
+                  <span class="text-sm font-medium text-foreground">Task name (exact)</span>
                   <Combobox
                     multiple={false}
                     options={taskNameOptions()}
@@ -682,8 +625,7 @@ export default function Tasks() {
                             return;
                           }
 
-                          const nextValue =
-                            toParamValue(taskNameInput()) ?? null;
+                          const nextValue = toParamValue(taskNameInput()) ?? null;
                           setTaskNameInput(nextValue ?? "");
                           if (nextValue === taskNameFilter()) {
                             return;
@@ -693,10 +635,7 @@ export default function Tasks() {
                           if (page() !== 1) {
                             setPage(1);
                           }
-                          syncSearchParams(
-                            { taskName: nextValue, page: 1 },
-                            { replace: true },
-                          );
+                          syncSearchParams({ taskName: nextValue, page: 1 }, { replace: true });
                         }}
                       />
                     </ComboboxTrigger>
@@ -709,14 +648,11 @@ export default function Tasks() {
                   <Button
                     type="button"
                     size="sm"
-                    variant={
-                      failedRunScope() === "terminal" ? "secondary" : "outline"
-                    }
+                    variant={failedRunScope() === "terminal" ? "secondary" : "outline"}
                     aria-pressed={failedRunScope() === "terminal"}
                     title="Only show failed runs where the task has exhausted retries."
                     onClick={() => {
-                      const nextScope =
-                        failedRunScope() === "terminal" ? "all" : "terminal";
+                      const nextScope = failedRunScope() === "terminal" ? "all" : "terminal";
                       setFailedRunScope(nextScope);
                       if (page() !== 1) {
                         setPage(1);
@@ -758,16 +694,12 @@ export default function Tasks() {
                 </Show>
               </div>
             </div>
-            <Show
-              when={!taskList.loading || allTasks().length}
-              fallback={<LoadingPlaceholder />}
-            >
+            <Show when={!taskList.loading || allTasks().length} fallback={<LoadingPlaceholder />}>
               <Show
                 when={allTasks().length > 0}
                 fallback={
                   <p class="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                    No tasks found. Adjust your filters or check back once
-                    workers enqueue tasks.
+                    No tasks found. Adjust your filters or check back once workers enqueue tasks.
                   </p>
                 }
               >
@@ -798,10 +730,7 @@ export default function Tasks() {
                               </td>
                               <td class="px-3 py-2 font-medium">
                                 <span class="group/filter inline-flex items-center gap-1">
-                                  <Highlight
-                                    text={task.taskName}
-                                    search={searchTerm()}
-                                  />
+                                  <Highlight text={task.taskName} search={searchTerm()} />
                                   <button
                                     class={`inline-flex items-center rounded p-0.5 cursor-pointer transition-opacity hover:bg-muted ${
                                       taskNameFilter() === task.taskName
@@ -813,24 +742,15 @@ export default function Tasks() {
                                         ? "Clear task name filter"
                                         : `Filter by task name: ${task.taskName}`
                                     }
-                                    onClick={(e) =>
-                                      applyFilter(e, "taskName", task.taskName)
-                                    }
+                                    onClick={(e) => applyFilter(e, "taskName", task.taskName)}
                                   >
-                                    <FilterIcon
-                                      active={
-                                        taskNameFilter() === task.taskName
-                                      }
-                                    />
+                                    <FilterIcon active={taskNameFilter() === task.taskName} />
                                   </button>
                                 </span>
                               </td>
                               <td class="px-3 py-2">
                                 <span class="group/filter inline-flex items-center gap-1">
-                                  <Highlight
-                                    text={task.queueName}
-                                    search={searchTerm()}
-                                  />
+                                  <Highlight text={task.queueName} search={searchTerm()} />
                                   <button
                                     class={`inline-flex items-center rounded p-0.5 cursor-pointer transition-opacity hover:bg-muted ${
                                       queueFilter() === task.queueName
@@ -842,13 +762,9 @@ export default function Tasks() {
                                         ? "Clear queue filter"
                                         : `Filter by queue: ${task.queueName}`
                                     }
-                                    onClick={(e) =>
-                                      applyFilter(e, "queue", task.queueName)
-                                    }
+                                    onClick={(e) => applyFilter(e, "queue", task.queueName)}
                                   >
-                                    <FilterIcon
-                                      active={queueFilter() === task.queueName}
-                                    />
+                                    <FilterIcon active={queueFilter() === task.queueName} />
                                   </button>
                                 </span>
                               </td>
@@ -866,21 +782,15 @@ export default function Tasks() {
                                         ? "Clear status filter"
                                         : `Filter by status: ${task.status}`
                                     }
-                                    onClick={(e) =>
-                                      applyFilter(e, "status", task.status)
-                                    }
+                                    onClick={(e) => applyFilter(e, "status", task.status)}
                                   >
-                                    <FilterIcon
-                                      active={statusFilter() === task.status}
-                                    />
+                                    <FilterIcon active={statusFilter() === task.status} />
                                   </button>
                                 </span>
                               </td>
                               <td class="px-3 py-2 tabular-nums">
                                 {task.attempt}
-                                {task.maxAttempts
-                                  ? ` / ${task.maxAttempts}`
-                                  : " / ∞"}
+                                {task.maxAttempts ? ` / ${task.maxAttempts}` : " / ∞"}
                               </td>
                               <td class="px-3 py-2">
                                 <IdDisplay value={task.runId} />
@@ -894,9 +804,7 @@ export default function Tasks() {
                                 </span>
                               </td>
                             </tr>
-                            <Show
-                              when={findParamsMatch(task.params, searchTerm())}
-                            >
+                            <Show when={findParamsMatch(task.params, searchTerm())}>
                               {(match) => (
                                 <tr class="bg-yellow-50 dark:bg-yellow-900/20">
                                   <td colspan="8" class="px-3 py-1">
@@ -904,10 +812,7 @@ export default function Tasks() {
                                       Match in params:{" "}
                                     </span>
                                     <code class="text-xs font-mono">
-                                      <Highlight
-                                        text={match()}
-                                        search={searchTerm()}
-                                      />
+                                      <Highlight text={match()} search={searchTerm()} />
                                     </code>
                                   </td>
                                 </tr>
@@ -981,9 +886,7 @@ export default function Tasks() {
 }
 
 function FilterIcon(props: { active?: boolean }) {
-  return (
-    <span class="text-[10px] leading-none">{props.active ? "▼" : "▽"}</span>
-  );
+  return <span class="text-[10px] leading-none">{props.active ? "▼" : "▽"}</span>;
 }
 
 function LoadingPlaceholder() {

@@ -48,11 +48,7 @@ export const DialogContent = <T extends ValidComponent = "div">(
         {local.children}
         {closable && (
           <DialogPrimitive.CloseButton class="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-[opacity,box-shadow] hover:opacity-100 focus:outline-none focus:ring-[1.5px] focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              class="h-4 w-4"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-4 w-4">
               <path
                 fill="none"
                 stroke="currentColor"
@@ -70,10 +66,9 @@ export const DialogContent = <T extends ValidComponent = "div">(
   );
 };
 
-type DialogTitlePropsPlus<T extends ValidComponent = "h2"> =
-  DialogTitleProps<T> & {
-    class?: string;
-  };
+type DialogTitlePropsPlus<T extends ValidComponent = "h2"> = DialogTitleProps<T> & {
+  class?: string;
+};
 
 export const DialogTitle = <T extends ValidComponent = "h2">(
   props: PolymorphicProps<T, DialogTitlePropsPlus<T>>,
@@ -88,17 +83,14 @@ export const DialogTitle = <T extends ValidComponent = "h2">(
   );
 };
 
-type DialogDescriptionPropsPlus<T extends ValidComponent = "p"> =
-  DialogDescriptionProps<T> & {
-    class?: string;
-  };
+type DialogDescriptionPropsPlus<T extends ValidComponent = "p"> = DialogDescriptionProps<T> & {
+  class?: string;
+};
 
 export const DialogDescription = <T extends ValidComponent = "p">(
   props: PolymorphicProps<T, DialogDescriptionPropsPlus<T>>,
 ) => {
-  const [local, rest] = splitProps(props as DialogDescriptionPropsPlus, [
-    "class",
-  ]);
+  const [local, rest] = splitProps(props as DialogDescriptionPropsPlus, ["class"]);
 
   return (
     <DialogPrimitive.Description
@@ -112,13 +104,7 @@ export const DialogHeader = (props: ComponentProps<"div">) => {
   const [local, rest] = splitProps(props, ["class"]);
 
   return (
-    <div
-      class={cn(
-        "flex flex-col space-y-2 text-center sm:text-left",
-        local.class,
-      )}
-      {...rest}
-    />
+    <div class={cn("flex flex-col space-y-2 text-center sm:text-left", local.class)} {...rest} />
   );
 };
 
@@ -127,10 +113,7 @@ export const DialogFooter = (props: ComponentProps<"div">) => {
 
   return (
     <div
-      class={cn(
-        "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
-        local.class,
-      )}
+      class={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", local.class)}
       {...rest}
     />
   );

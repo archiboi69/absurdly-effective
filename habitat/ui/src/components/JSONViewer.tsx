@@ -24,9 +24,7 @@ type JSONToken =
 
 export function JSONViewer(props: JSONViewerProps) {
   const [copied, setCopied] = createSignal(false);
-  const [toggledStrings, setToggledStrings] = createSignal<Set<string>>(
-    new Set(),
-  );
+  const [toggledStrings, setToggledStrings] = createSignal<Set<string>>(new Set());
   const [foldedPaths, setFoldedPaths] = createSignal<Set<string>>(new Set());
 
   const allFoldablePaths = createMemo(() => collectFoldablePaths(props.data));
@@ -148,17 +146,13 @@ export function JSONViewer(props: JSONViewerProps) {
                     );
                   }
                   if (token.type === "punctuation") {
-                    return (
-                      <span class="text-muted-foreground">{token.value}</span>
-                    );
+                    return <span class="text-muted-foreground">{token.value}</span>;
                   }
                   if (token.type === "whitespace") {
                     return <span>{token.value}</span>;
                   }
                   if (token.type === "foldable-end") {
-                    return (
-                      <span class="text-muted-foreground">{token.value}</span>
-                    );
+                    return <span class="text-muted-foreground">{token.value}</span>;
                   }
                   return null;
                 }}
@@ -239,13 +233,7 @@ function tokenizeJSON(
         data.forEach((item, index) => {
           tokens.push({ type: "whitespace", value: indentStr + "  " });
           tokens.push(
-            ...tokenizeJSON(
-              item,
-              toggledStrings,
-              foldedPaths,
-              `${path}[${index}]`,
-              indent + 1,
-            ),
+            ...tokenizeJSON(item, toggledStrings, foldedPaths, `${path}[${index}]`, indent + 1),
           );
           if (index < data.length - 1) {
             tokens.push({ type: "punctuation", value: "," });
@@ -283,15 +271,7 @@ function tokenizeJSON(
             path: keyPath,
           });
           tokens.push({ type: "punctuation", value: ": " });
-          tokens.push(
-            ...tokenizeJSON(
-              value,
-              toggledStrings,
-              foldedPaths,
-              keyPath,
-              indent + 1,
-            ),
-          );
+          tokens.push(...tokenizeJSON(value, toggledStrings, foldedPaths, keyPath, indent + 1));
           if (index < entries.length - 1) {
             tokens.push({ type: "punctuation", value: "," });
           }
@@ -321,9 +301,7 @@ function collectFoldablePaths(data: any, path: string = "$"): string[] {
 
     return [
       path,
-      ...data.flatMap((item, index) =>
-        collectFoldablePaths(item, `${path}[${index}]`),
-      ),
+      ...data.flatMap((item, index) => collectFoldablePaths(item, `${path}[${index}]`)),
     ];
   }
 
@@ -334,9 +312,7 @@ function collectFoldablePaths(data: any, path: string = "$"): string[] {
 
   return [
     path,
-    ...entries.flatMap(([key, value]) =>
-      collectFoldablePaths(value, `${path}.${key}`),
-    ),
+    ...entries.flatMap(([key, value]) => collectFoldablePaths(value, `${path}.${key}`)),
   ];
 }
 

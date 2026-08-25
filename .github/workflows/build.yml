@@ -90,17 +90,17 @@ jobs:
           go-version: '1.21'
           cache-dependency-path: habitat/go.sum
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@v1.18.0
         with:
-          node-version: '20'
+          node-version: '24'
+          cache: true
 
       - name: Build UI
-        working-directory: habitat
+        working-directory: habitat/ui
         run: |
-          cd ui
-          npm install
-          npm run build
+          vp install
+          vp run build
 
       - name: Build Habitat binary
         working-directory: habitat
@@ -231,22 +231,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@v1.18.0
         with:
           node-version: '24'
 
       - name: Install dependencies
         working-directory: sdks/typescript
-        run: npm ci
+        run: vp install
 
       - name: Build SDK
         working-directory: sdks/typescript
-        run: npm run build
+        run: vp run build
 
       - name: Test package
         working-directory: sdks/typescript
-        run: npm pack
+        run: pnpm pack
 
   publish-npm:
     name: Publish to npm
@@ -268,13 +268,18 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@v1.18.0
+        with:
+          node-version: '24'
+
       - name: Install dependencies
         working-directory: sdks/typescript
-        run: npm ci
+        run: vp install
 
       - name: Build SDK
         working-directory: sdks/typescript
-        run: npm run build
+        run: vp run build
 
       - name: Publish to npm
         working-directory: sdks/typescript

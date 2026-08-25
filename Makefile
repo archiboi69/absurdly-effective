@@ -2,8 +2,8 @@
 
 # Format all code
 format:
-	@cd sdks/typescript && npx prettier -w .
-	@cd habitat/ui && npx prettier -w .
+	@cd sdks/typescript && vp fmt
+	@cd habitat/ui && vp fmt
 	@uvx ruff format tests sdks/python
 	@gofmt -w habitat
 
@@ -45,7 +45,7 @@ test-core:
 # Run TypeScript SDK checks and tests
 test-typescript:
 	@echo "Running TypeScript SDK checks and tests"
-	@cd sdks/typescript && npm run type-check && npm run test
+	@cd sdks/typescript && vp run type-check && vp run test
 
 # Run Python SDK tests
 test-python:

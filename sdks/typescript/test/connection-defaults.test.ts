@@ -11,9 +11,7 @@ describe("Connection defaults", () => {
 
     try {
       const app = new Absurd();
-      expect((app as any).con.options.connectionString).toBe(
-        "postgresql://localhost/absurd",
-      );
+      expect((app as any).con.options.connectionString).toBe("postgresql://localhost/absurd");
       await app.close();
     } finally {
       if (oldAbsurdDatabaseUrl === undefined) {
@@ -46,9 +44,7 @@ describe("Connection defaults", () => {
       delete process.env.PGDATABASE;
 
       const fallback = new Absurd();
-      expect((fallback as any).con.options.connectionString).toBe(
-        "postgresql://localhost/absurd",
-      );
+      expect((fallback as any).con.options.connectionString).toBe("postgresql://localhost/absurd");
       await fallback.close();
     } finally {
       if (oldAbsurdDatabaseUrl === undefined) {

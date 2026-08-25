@@ -1,16 +1,20 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vite-plus";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import { consoleForwardPlugin } from "vite-console-forward-plugin";
 
 export default defineConfig(({ mode }) => ({
+  fmt: {},
+  lint: {
+    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
+    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
+    options: { typeAware: true, typeCheck: true },
+  },
   base: mode === "production" ? "/_static/" : "/",
-  plugins: [
-    solid(),
-    tailwindcss(),
-    mode === "production" ? null : consoleForwardPlugin(),
-  ].filter(Boolean),
+  plugins: [solid(), tailwindcss(), mode === "production" ? null : consoleForwardPlugin()].filter(
+    Boolean,
+  ),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
