@@ -17,6 +17,12 @@
           "run": "onSave"
         }
       }
+    },
+    "typescript-ls": {
+      "binary": {
+        "path": "node_modules/typescript/bin/tsc",
+        "arguments": ["--lsp", "--stdio"]
+      }
     }
   },
   "languages": {
@@ -84,7 +90,8 @@
           }
         }
       ],
-      "code_action": "source.fixAll.oxc"
+      "code_action": "source.fixAll.oxc",
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server"]
     },
     "JSX": {
       "format_on_save": "on",
@@ -97,7 +104,8 @@
             "name": "oxfmt"
           }
         }
-      ]
+      ],
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server"]
     },
     "JSON": {
       "format_on_save": "on",
@@ -201,7 +209,8 @@
             "name": "oxfmt"
           }
         }
-      ]
+      ],
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server"]
     },
     "TSX": {
       "format_on_save": "on",
@@ -214,7 +223,8 @@
             "name": "oxfmt"
           }
         }
-      ]
+      ],
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server"]
     },
     "Vue.js": {
       "format_on_save": "on",

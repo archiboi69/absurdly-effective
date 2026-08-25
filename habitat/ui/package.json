@@ -22,7 +22,7 @@
     "shadcn-solid": "^0.7.7",
     "tailwindcss": "^4.1.15",
     "tailwindcss-animate": "^1.0.7",
-    "typescript": "~5.9.3",
+    "typescript": "catalog:",
     "vite": "catalog:",
     "vite-console-forward-plugin": "^2.0.1",
     "vite-plugin-solid": "^2.11.8",
