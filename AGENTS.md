@@ -38,6 +38,15 @@ npm install
 npm run build  # Compiles to dist/ (both ESM and CommonJS)
 ```
 
+Effect type-aware linting (oxlint + `@effect/tsgo`, separate from `vp lint`):
+
+```bash
+cd sdks/typescript
+npm run lint:effect  # Runs patched oxlint with effecttsgo rules (.oxlintrc.json)
+```
+
+The oxlint binary is patched by a `postinstall` hook (`effect-tsgo patch --no-typescript --oxlint --skip-missing`). The pinned `@effect/tsgo` / `oxlint` / `oxlint-tsgolint` versions must stay in sync per the [compatibility matrix](https://github.com/Effect-TS/tsgo#supported-package-versions).
+
 ### Habitat (Web UI)
 
 ```bash
