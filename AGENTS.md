@@ -57,3 +57,26 @@ Configuration via flags or `HABITAT_*` env vars (see habitat/README.md).
 ## Additional Information
 
 More information can be found in @README.md and @CONTRIBUTING.md
+
+## References
+
+Reference codebases are vendored under `.context/` as squashed git subtrees.
+
+- Use vendored repositories as read-only reference material.
+- Prefer examples and patterns from vendored source over generated guesses or web search.
+- Do not edit files under `.context/` unless explicitly asked.
+- Do not import from `.context/`; application code must import normal package dependencies.
+
+### Effect
+
+The Effect v4 repository is vendored at `.context/effect` for reference. Use it to explore APIs, find usage examples, and understand implementation details when the documentation is not enough. Before writing Effect code, inspect `.context/effect/LLMS.md` if present and update the Effect source if the worktree is clean, run from the workspace root:
+
+Use `vp run check:effect` to surface Effect language-service diagnostics that `vp check` does not report.
+
+```bash
+git subtree pull \
+    --prefix=.context/effect \
+    https://github.com/Effect-TS/effect.git \
+    main \
+    --squash
+```
