@@ -4,13 +4,14 @@ packages:
 
 allowBuilds:
   cpu-features: true
+  msgpackr-extract: true
   protobufjs: true
   ssh2: true
 
 catalog:
   typescript: ^7.0.2
-  vite: npm:@voidzero-dev/vite-plus-core@0.2.9
-  vite-plus: 0.2.9
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.0
+  vite-plus: 0.3.0
 minimumReleaseAgeExclude:
   - '@effect/tsgo-darwin-arm64@0.37.0'
   - '@effect/tsgo-darwin-x64@0.37.0'

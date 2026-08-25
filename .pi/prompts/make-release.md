@@ -19,8 +19,9 @@ If `$ARGUMENTS` is a release type (`patch`, `minor`, or `major`):
   ```bash
   cd sdks/typescript
   CURRENT_VERSION=$(node -p "require('./package.json').version")
-  NEW_VERSION=$(npm version $ARGUMENTS --no-git-tag-version | sed 's/^v//')
-  git checkout package.json package-lock.json  # Revert the changes
+  NEW_VERSION=$(vp pm version $ARGUMENTS --json -- --no-git-tag-version \
+      | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8'))[0].newVersion")
+  git checkout package.json  # Revert the changes
   cd ../..
   echo "Will release version: $NEW_VERSION"
   ```
@@ -62,7 +63,6 @@ Then execute the release script with the explicit version number (NOT the releas
 
 The script will automatically:
 - Update the version in `sdks/typescript/package.json`
-- Update `package-lock.json`
 - Update `sql/absurd.sql` schema version to `$NEW_VERSION`
 - Rename any pending `-main.sql` migrations to `OLD-$NEW_VERSION.sql`
 - Create a commit with message "Release $NEW_VERSION" and a git tag

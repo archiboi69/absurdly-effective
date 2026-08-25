@@ -33,27 +33,19 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json && tsc --project tsconfig.cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
     "type-check": "tsc --noEmit",
-    "prepare": "npm run build",
-    "postinstall": "effect-tsgo patch --no-typescript --oxlint --skip-missing",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "lint:effect": "oxlint .",
+    "prepare": "vp run build",
     "docs": "typedoc"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.37.0",
     "@effect/vitest": "4.0.0-rc.108",
     "@testcontainers/postgresql": "^11.7.2",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "effect": "4.0.0-rc.108",
-    "oxlint": "1.80.0",
-    "oxlint-tsgolint": "7.0.2001",
     "typedoc": "0.28.20",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vite-plus": "catalog:",
-    "vitest": "^4.1.10"
+    "vite-plus": "catalog:"
   },
   "peerDependencies": {
     "pg": "^8.0.0"

@@ -69,7 +69,7 @@ beforeAll(
 
     console.log("✓ Test container started and schema loaded");
   },
-  { timeout: 60000 },
+  60000,
 );
 
 afterAll(async () => {

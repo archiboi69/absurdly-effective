@@ -2,7 +2,11 @@
   "name": "absurd-monorepo",
   "private": true,
   "type": "module",
+  "scripts": {
+    "postinstall": "effect-tsgo patch --no-typescript --oxlint"
+  },
   "devDependencies": {
+    "@effect/tsgo": "0.37.0",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   },

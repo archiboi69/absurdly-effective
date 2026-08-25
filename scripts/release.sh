@@ -63,7 +63,7 @@ Usage: $0 [VERSION_TYPE|VERSION]
 Bump the SDK package versions and create release tags.
 
 Arguments:
-    VERSION_TYPE    One of: major, minor, patch (uses npm version)
+    VERSION_TYPE    One of: major, minor, patch (uses vp pm version)
     VERSION         Specific version number (e.g., 1.2.3)
 
 Examples:
@@ -108,17 +108,18 @@ cd "$SDK_DIR"
 CURRENT_VERSION=$(node -p "require('./package.json').version")
 info "Current version: $CURRENT_VERSION"
 
-# Update version using npm version
-# --no-git-tag-version prevents npm from creating a git tag (we'll do it manually)
-# If the version is already set to the target, skip the npm version command
+# Update version using vp pm version
+# --no-git-tag-version prevents the package manager from creating a git tag (we'll do it manually)
+# If the version is already set to the target, skip the version bump command
 if [[ "$VERSION_TYPE" == "$CURRENT_VERSION" ]]; then
     info "Version is already set to $CURRENT_VERSION, skipping version bump"
     NEW_VERSION="$CURRENT_VERSION"
 else
     info "Bumping version to $VERSION_TYPE..."
-    NEW_VERSION=$(npm version "$VERSION_TYPE" --no-git-tag-version)
+    NEW_VERSION=$(vp pm version "$VERSION_TYPE" --json -- --no-git-tag-version \
+        | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8'))[0].newVersion")
 
-    # Remove 'v' prefix if npm added it
+    # Remove 'v' prefix if the package manager added it
     NEW_VERSION="${NEW_VERSION#v}"
 
     success "Version updated to: $NEW_VERSION"
@@ -189,8 +190,8 @@ else
 fi
 
 # Update lockfiles to reflect the new version.
-# The TypeScript SDK's own version is not recorded in its pnpm lockfile, so
-# only the Python lockfile needs refreshing here.
+# The TypeScript SDK's own version is not recorded in pnpm's workspace lockfile,
+# so only the Python lockfile needs refreshing here.
 info "Updating lockfiles..."
 cd "$PYTHON_SDK_DIR"
 uv lock
@@ -198,7 +199,7 @@ cd "$PROJECT_ROOT"
 
 # Commit the version change
 info "Creating git commit..."
-git add sdks/typescript/package.json sdks/typescript/pnpm-lock.yaml sdks/python/pyproject.toml sdks/python/uv.lock sql/absurd.sql sql/migrations
+git add sdks/typescript/package.json sdks/python/pyproject.toml sdks/python/uv.lock sql/absurd.sql sql/migrations
 git commit -m "Release $NEW_VERSION"
 
 # Create git tag without 'v' prefix

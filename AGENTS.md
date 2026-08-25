@@ -33,19 +33,21 @@ linter, test runner, bundler, and Vite frontend interface.
 ### TypeScript SDK
 
 ```bash
-cd sdks/typescript
-npm install
-npm run build  # Compiles to dist/ (both ESM and CommonJS)
+vp install              # from the workspace root
+vp run absurd-sdk#build # Compiles to dist/ (both ESM and CommonJS)
+vp test                 # Run SDK tests (vitest via Vite+)
 ```
 
-Effect type-aware linting (oxlint + `@effect/tsgo`, separate from `vp lint`):
+Tests use vitest through Vite+ (`vp test run` / `vp test watch` from
+`sdks/typescript`); shared config lives in `sdks/typescript/vite.config.ts`
+under the `test` section — there is no separate `vitest.config.ts`.
 
-```bash
-cd sdks/typescript
-npm run lint:effect  # Runs patched oxlint with effecttsgo rules (.oxlintrc.json)
-```
-
-The oxlint binary is patched by a `postinstall` hook (`effect-tsgo patch --no-typescript --oxlint --skip-missing`). The pinned `@effect/tsgo` / `oxlint` / `oxlint-tsgolint` versions must stay in sync per the [compatibility matrix](https://github.com/Effect-TS/tsgo#supported-package-versions).
+Effect type-aware diagnostics run inside `vp lint`: a root `postinstall` hook
+(`effect-tsgo patch --no-typescript --oxlint`) patches the Oxlint embedded in
+Vite+ with the `effecttsgo` plugin, and `vite.config.ts` enables its rules for
+`sdks/typescript/**` via `lint.overrides`. The `@effect/tsgo` version must stay
+compatible with the Oxlint/`oxlint-tsgolint` versions bundled by Vite+ per the
+[compatibility matrix](https://github.com/Effect-TS/tsgo#supported-package-versions).
 
 ### Habitat (Web UI)
 
