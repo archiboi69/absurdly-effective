@@ -44,8 +44,9 @@ under the `test` section — there is no separate `vitest.config.ts`.
 
 Effect type-aware diagnostics run inside `vp lint`: a root `postinstall` hook
 (`effect-tsgo patch --no-typescript --oxlint`) patches the Oxlint embedded in
-Vite+ with the `effecttsgo` plugin, and `vite.config.ts` enables its rules for
-`sdks/typescript/**` via `lint.overrides`. The `@effect/tsgo` version must stay
+Vite+ with the `effecttsgo` plugin, and `vite.config.ts` enables every
+`effecttsgo` rule at `error` severity for `sdks/typescript/**` via
+`lint.overrides`. The `@effect/tsgo` version must stay
 compatible with the Oxlint/`oxlint-tsgolint` versions bundled by Vite+ per the
 [compatibility matrix](https://github.com/Effect-TS/tsgo#supported-package-versions).
 

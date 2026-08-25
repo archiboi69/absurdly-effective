@@ -1,14 +1,17 @@
-import { readFileSync } from "node:fs";
+import {
+  antipattern,
+  correctness,
+  effectNative,
+  style,
+} from "@effect/tsgo/oxlint-presets";
 import { defineConfig } from "vite-plus";
 
-// Effect type-aware diagnostics via the effecttsgo plugin that
-// `@effect/tsgo`'s postinstall patch injects into the Oxlint binary.
-const effectRules = JSON.parse(
-  readFileSync(
-    new URL("./node_modules/@effect/tsgo/oxlint-presets/recommended.json", import.meta.url),
-    "utf8",
-  ),
-).rules;
+// Every effecttsgo rule the @effect/tsgo presets ship, at error severity.
+const effectRules = Object.fromEntries(
+  [correctness, antipattern, effectNative, style].flatMap((preset) =>
+    Object.keys(preset.rules ?? {}),
+  ).map((rule): [string, "error"] => [rule, "error"]),
+) as NonNullable<typeof correctness.rules>;
 
 // Only the JS/TS workspace packages are linted/formatted; everything else
 // (vendored references, Python, Go, docs) is out of scope for Vite+.
@@ -37,6 +40,8 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
     overrides: [
       {
+        // Effect type-aware diagnostics via the effecttsgo plugin that
+        // `@effect/tsgo`'s postinstall patch injects into the Oxlint binary.
         files: ["sdks/typescript/**"],
         plugins: ["effecttsgo"],
         rules: effectRules,
