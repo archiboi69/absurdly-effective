@@ -686,6 +686,11 @@ class TaskContext:
         raise TypeError("Cannot create TaskContext instances")
 
     @property
+    def run_id(self) -> str:
+        """Returns the identifier of the current run."""
+        return self._task["run_id"]
+
+    @property
     def headers(self) -> Mapping[str, JsonValue]:
         """Returns all headers attached to this task."""
         return self._task.get("headers") or {}
@@ -967,6 +972,11 @@ class AsyncTaskContext:
 
     def __init__(self):
         raise TypeError("Cannot create AsyncTaskContext instances")
+
+    @property
+    def run_id(self) -> str:
+        """Returns the identifier of the current run."""
+        return self._task["run_id"]
 
     @property
     def headers(self) -> Mapping[str, JsonValue]:

@@ -177,6 +177,10 @@ if final.state == "failed":
 
 The unique identifier of the current task.
 
+#### `ctx.run_id`
+
+The identifier of the current run.  Changes on every retry.
+
 #### `ctx.headers`
 
 Read-only mapping of headers attached to the task.

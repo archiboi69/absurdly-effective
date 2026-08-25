@@ -299,6 +299,13 @@ export class TaskContext {
     return this.task.headers ?? {};
   }
 
+  /**
+   * Returns the identifier of the current run.
+   */
+  get runID(): string {
+    return this.task.run_id;
+  }
+
   static async create(args: {
     log: Log;
     taskID: string;

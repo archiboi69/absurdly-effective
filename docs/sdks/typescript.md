@@ -151,6 +151,10 @@ The context object passed to every task handler.
 
 The unique identifier of the current task.
 
+### `ctx.runID`
+
+The identifier of the current run.  Changes on every retry.
+
 ### `ctx.headers`
 
 Read-only JSON object of headers attached to the task.
