@@ -27,9 +27,10 @@ uv add absurd-sdk
 When Python produces work for an Effect `WorkflowEngine`, use
 `spawnWorkflow`. It derives Effect's execution ID from the workflow name and
 your business idempotency key, stores it as Absurd's idempotency key, and uses
-Effect's fixed one-second retry strategy. Persist the returned execution ID for
-native `Workflow.poll`, `Workflow.resume`, and `Workflow.interrupt` calls; the
-task UUID is only a storage detail.
+Effect's bounded fixed one-second infrastructure retry strategy. Persist the
+returned execution ID for native `Workflow.poll`, `Workflow.resume`, and
+`Workflow.interrupt` calls; the task UUID is only a storage detail. Business
+retries belong inside the Effect workflow around its `Activity` operations.
 
 ```python
 from absurd_sdk import Absurd

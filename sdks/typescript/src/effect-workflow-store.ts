@@ -18,7 +18,7 @@ import * as Schema from "effect/Schema";
  * JSON-safe structures; this module owns serialization to `jsonb` text and
  * returns raw rows. Operational state transitions are performed exclusively
  * through Absurd stored procedures (`spawn_task`, `claim_task`,
- * `complete_run`, `schedule_run`, `set_task_checkpoint_state`,
+ * `complete_run`, `fail_run`, `schedule_run`, `set_task_checkpoint_state`,
  * `get_task_checkpoint_state`, `await_event`, `emit_event`,
  * `request_task_interrupt`, `cancel_task`, `extend_claim`, `get_task_result`),
  * keeping locking and transition policy in the database layer. Remaining
@@ -43,24 +43,21 @@ const ClaimedRow = Schema.Struct({
 });
 export type ClaimedRow = typeof ClaimedRow.Type;
 
-const TaskInfoRow = Schema.Struct({
+const ExecutionTaskRow = Schema.Struct({
   task_id: Schema.String,
   last_attempt_run: Schema.NullOr(Schema.String),
 });
-export type TaskInfoRow = typeof TaskInfoRow.Type;
 
 const TaskSnapshotRow = Schema.Struct({
-  state: Schema.String,
+  state: Schema.Literals(["pending", "running", "sleeping", "completed", "failed", "cancelled"]),
   result: Schema.Unknown,
   failure_reason: Schema.Unknown,
 });
 export type TaskSnapshotRow = typeof TaskSnapshotRow.Type;
 
 const SpawnedTaskRow = Schema.Struct({ task_id: Schema.String });
-export type SpawnedTaskRow = typeof SpawnedTaskRow.Type;
 
 const AwaitEventRow = Schema.Struct({ should_suspend: Schema.Boolean });
-export type AwaitEventRow = typeof AwaitEventRow.Type;
 
 const CheckpointStateRow = Schema.Struct({ state: Schema.Unknown });
 const ExecutionIdRow = Schema.Struct({ idempotency_key: Schema.NullOr(Schema.String) });
@@ -96,17 +93,17 @@ const optionalRow = <A extends object>(
     execute: () => execute,
   })(undefined).pipe(Effect.catchTag("SchemaError", Effect.die));
 
-export interface AbsurdWorkflowStore {
+interface AbsurdWorkflowStore {
   readonly spawnTask: (
     queue: string,
     taskName: string,
     payload: object,
     options: object,
-  ) => Effect.Effect<SpawnedTaskRow, SqlError.SqlError>;
-  readonly taskIdForExecution: (
+  ) => Effect.Effect<typeof SpawnedTaskRow.Type, SqlError.SqlError>;
+  readonly taskByExecutionId: (
     queue: string,
     executionId: string,
-  ) => Effect.Effect<Option.Option<TaskInfoRow>, SqlError.SqlError>;
+  ) => Effect.Effect<Option.Option<typeof ExecutionTaskRow.Type>, SqlError.SqlError>;
   readonly executionIdForTask: (
     queue: string,
     taskId: string,
@@ -126,6 +123,11 @@ export interface AbsurdWorkflowStore {
     runId: string,
     result: unknown,
   ) => Effect.Effect<void, SqlError.SqlError>;
+  readonly failRun: (
+    queue: string,
+    runId: string,
+    reason: object,
+  ) => Effect.Effect<void, SqlError.SqlError>;
   readonly scheduleRunInSeconds: (
     queue: string,
     runId: string,
@@ -138,7 +140,7 @@ export interface AbsurdWorkflowStore {
     runId: string,
     checkpointName: string,
     eventName: string,
-  ) => Effect.Effect<AwaitEventRow, SqlError.SqlError>;
+  ) => Effect.Effect<typeof AwaitEventRow.Type, SqlError.SqlError>;
   readonly emitEvent: (
     queue: string,
     eventName: string,
@@ -179,9 +181,9 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
       ]),
     ),
 
-  taskIdForExecution: (queue, executionId) =>
+  taskByExecutionId: (queue, executionId) =>
     optionalRow(
-      TaskInfoRow,
+      ExecutionTaskRow,
       sql.unsafe(
         `select task_id, last_attempt_run
            from absurd.get_task_by_idempotency_key($1, $2)`,
@@ -214,6 +216,11 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
   completeRun: (queue, runId, result) =>
     Effect.asVoid(
       sql.unsafe(`select absurd.complete_run($1, $2, $3)`, [queue, runId, toJsonText(result)]),
+    ),
+
+  failRun: (queue, runId, reason) =>
+    Effect.asVoid(
+      sql.unsafe(`select absurd.fail_run($1, $2, $3)`, [queue, runId, toJsonText(reason)]),
     ),
 
   scheduleRunInSeconds: (queue, runId, seconds) =>
@@ -276,6 +283,10 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
   taskResult: (queue, taskId) =>
     optionalRow(
       TaskSnapshotRow,
-      sql.unsafe(`select * from absurd.get_task_result($1, $2)`, [queue, taskId]),
+      sql.unsafe(
+        `select state, result, failure_reason
+           from absurd.get_task_result($1, $2)`,
+        [queue, taskId],
+      ),
     ),
 });

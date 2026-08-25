@@ -1213,9 +1213,9 @@ declare
 begin
   execute format(
     'select task_id
-       from absurd.%I
+      from absurd.%I
       where run_id = $1
-        and state = ''running''
+        and state in (''running'', ''sleeping'')
       for update',
     'r_' || p_queue_name
   )
@@ -1223,7 +1223,7 @@ begin
   using p_run_id;
 
   if v_task_id is null then
-    raise exception 'Run "%" is not currently running in queue "%"', p_run_id, p_queue_name;
+    raise exception 'Run "%" is not active in queue "%"', p_run_id, p_queue_name;
   end if;
 
   execute format(

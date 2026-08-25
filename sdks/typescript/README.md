@@ -38,6 +38,83 @@ See the [absurdctl docs](https://earendil-works.github.io/absurd/tools/absurdctl
 the full CLI reference, including
 [`uvx`](https://docs.astral.sh/uv/guides/tools/) usage.
 
+## Effect workflows
+
+`AbsurdWorkflowEngine` implements Effect's native
+`effect/unstable/workflow` engine. Bind each workflow definition to its
+physical Absurd queue, register its handler with `Workflow.toLayer`, and
+provide one engine layer for the worker process.
+
+### Ensure an execution exists, then check its status
+
+`execute(payload, { discard: true })` is the idempotent ensure operation. It
+creates the execution if necessary and always returns Effect's deterministic
+workflow execution ID. Pass that returned ID directly to `poll`:
+
+```typescript
+const executionId = yield* IssueInvoiceWorkflow.execute(payload, { discard: true });
+const result = yield* IssueInvoiceWorkflow.poll(executionId);
+```
+
+This is the recommended reconciliation pattern. It repairs a missing backing
+task before checking status without exposing Absurd task lookup or UUIDs.
+
+Effect's native `poll` deliberately has a small portable contract: `None` can
+mean either “not found” or “pending/running”, and a sleeping workflow is a
+`Some(Suspended)`. For operational tooling that must distinguish Absurd's
+storage states, use the additive API:
+
+```typescript
+const status = yield* AbsurdWorkflowEngine.executionStatus(
+  IssueInvoiceWorkflow,
+  executionId,
+);
+// NotFound | Pending | Running | Sleeping
+// Completed { exit } | Failed { failure } | Cancelled
+```
+
+`Completed.exit` is the schema-decoded typed workflow exit, including typed
+business failures. `Failed` is different: it means the backing Absurd task
+failed at the infrastructure or protocol level. `executionStatus` is for
+reconciliation, diagnostics, and operational tooling; normal workflow control
+stays on Effect's native `Workflow` methods. The workflow argument supplies
+the queue binding and result schemas needed to locate and decode that execution;
+the engine reads the storage status.
+
+### Execution identity
+
+Persist the workflow execution ID returned by `execute`, not the backing
+Absurd task UUID. Native `poll`, `resume`, and `interrupt` all address an
+execution by that execution ID. Absurd maps it to the task idempotency key; task
+and run UUIDs remain storage and operations details.
+
+Non-Effect producers must follow the same protocol. Prefer the Python SDK's
+`spawnWorkflow(...)`, which derives the compatible execution ID, uses it as the
+Absurd idempotency key, and returns both IDs so application data can retain only
+`execution_id`.
+
+### Retry ownership
+
+Typed workflow failures are terminal workflow outcomes. Put business retries
+around the fallible `Activity`, and use `DurableClock` when time between
+attempts must survive process restarts. The backing Absurd task has a bounded
+fixed retry policy only to recover infrastructure-level execution failures such
+as a lost worker claim; it is not a second business retry policy.
+
+### Malformed external tasks and rolling deployments
+
+An externally spawned workflow must include its execution ID as Absurd's
+idempotency key. A missing ID fails with an
+`AbsurdEffectWorkflowProtocolError` through Absurd's ordinary `fail_run`
+policy, so the task's configured retry budget remains authoritative. The
+Effect and Python workflow spawn helpers set a bounded five-attempt fixed
+retry policy.
+
+An unregistered workflow name is different: workers defer it and log a warning
+indefinitely. This preserves Absurd's pull-worker and rolling-deployment model;
+deploying a worker that registers the workflow and resuming the execution lets
+the same task continue.
+
 ## Quick Start
 
 If you omit `db`, the client uses `ABSURD_DATABASE_URL`, then `PGDATABASE`,

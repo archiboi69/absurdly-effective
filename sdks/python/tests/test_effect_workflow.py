@@ -20,12 +20,13 @@ def test_effect_workflow_execution_id_hashes_utf8_and_truncates_to_128_bits() ->
     execution_id = effect_workflow_execution_id("workflow-zażółć", "klucz-🚚")
 
     assert execution_id == "444a0466cfbeccfe2cdc7953618be84b"
-    assert len(execution_id) == 32
 
 
-def test_spawn_workflow_sets_effect_defaults_and_is_idempotent(conn, queue_name) -> None:
+def test_spawn_workflow_sets_effect_defaults_and_is_idempotent(
+    conn, queue_name
+) -> None:
     queue = queue_name("effect_workflow")
-    client = Absurd(conn, queue_name=queue)
+    client = Absurd(conn, queue_name=queue, default_max_attempts=9)
     client.create_queue()
 
     first = client.spawnWorkflow(
@@ -47,7 +48,7 @@ def test_spawn_workflow_sets_effect_defaults_and_is_idempotent(conn, queue_name)
     task = conn.execute(
         sql.SQL(
             """
-            SELECT task_name, params, idempotency_key, retry_strategy
+            SELECT task_name, params, idempotency_key, retry_strategy, max_attempts
             FROM absurd.{table}
             WHERE task_id = %s
             """
@@ -60,17 +61,20 @@ def test_spawn_workflow_sets_effect_defaults_and_is_idempotent(conn, queue_name)
         {"attemptId": 123},
         first["execution_id"],
         {"kind": "fixed", "base_seconds": 1},
+        5,
     )
 
 
-def test_async_spawn_workflow_returns_effect_and_storage_ids(db_dsn, queue_name) -> None:
+def test_async_spawn_workflow_sets_effect_defaults_and_returns_ids(
+    db_dsn, queue_name
+) -> None:
     queue = queue_name("async_effect_workflow")
 
     with psycopg.connect(db_dsn, autocommit=True) as setup_conn:
         Absurd(setup_conn, queue_name=queue).create_queue()
 
     async def run():
-        client = AsyncAbsurd(db_dsn, queue_name=queue)
+        client = AsyncAbsurd(db_dsn, queue_name=queue, default_max_attempts=9)
         try:
             return await client.spawnWorkflow("workflow", {"value": 42}, "order-42")
         finally:
@@ -78,5 +82,14 @@ def test_async_spawn_workflow_returns_effect_and_storage_ids(db_dsn, queue_name)
 
     result = asyncio.run(run())
 
-    assert result["execution_id"] == effect_workflow_execution_id("workflow", "order-42")
-    assert result["task_id"]
+    assert result["execution_id"] == effect_workflow_execution_id(
+        "workflow", "order-42"
+    )
+    with psycopg.connect(db_dsn) as verify_conn:
+        max_attempts = verify_conn.execute(
+            sql.SQL(
+                "SELECT max_attempts FROM absurd.{table} WHERE task_id = %s"
+            ).format(table=sql.Identifier(f"t_{queue}")),
+            (result["task_id"],),
+        ).fetchone()
+    assert max_attempts == (5,)

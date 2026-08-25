@@ -71,6 +71,7 @@ _current_task_context: contextvars.ContextVar[
 
 _UNKNOWN_TASK_DEFER_BASE_SECONDS = 15
 _UNKNOWN_TASK_DEFER_JITTER_SECONDS = 15
+_EFFECT_WORKFLOW_INFRASTRUCTURE_MAX_ATTEMPTS = 5
 
 
 def effect_workflow_execution_id(workflow_name: str, idempotency_key: str) -> str:
@@ -1556,6 +1557,7 @@ class Absurd(_AbsurdBase):
             workflow_name,
             payload,
             queue=self._queue_name,
+            max_attempts=_EFFECT_WORKFLOW_INFRASTRUCTURE_MAX_ATTEMPTS,
             idempotency_key=execution_id,
             retry_strategy={"kind": "fixed", "base_seconds": 1},
         )
@@ -2112,6 +2114,7 @@ class AsyncAbsurd(_AbsurdBase):
             workflow_name,
             payload,
             queue=self._queue_name,
+            max_attempts=_EFFECT_WORKFLOW_INFRASTRUCTURE_MAX_ATTEMPTS,
             idempotency_key=execution_id,
             retry_strategy={"kind": "fixed", "base_seconds": 1},
         )
