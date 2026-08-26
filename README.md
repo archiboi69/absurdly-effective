@@ -52,6 +52,7 @@ See the [quickstart guide](https://earendil-works.github.io/absurd/quickstart/) 
 Currently SDKs exist for the following languages:
 
 * [TypeScript](sdks/typescript) (and JavaScript)
+* [Effect](sdks/effect) (Effect-native tasks backed by the TypeScript SDK)
 * [Python](sdks/python)
 
 ## Push vs Pull

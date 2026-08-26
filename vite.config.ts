@@ -86,7 +86,7 @@ export default defineConfig({
       {
         // Effect type-aware diagnostics via the effecttsgo plugin that
         // `@effect/tsgo`'s postinstall patch injects into the Oxlint binary.
-        files: ["sdks/typescript/**"],
+        files: ["sdks/effect/**", "sdks/typescript/**"],
         plugins: ["effecttsgo"],
         rules: effectRules,
       },
