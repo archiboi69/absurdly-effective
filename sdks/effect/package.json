@@ -1,20 +1,20 @@
 {
-  "name": "absurd-sdk",
-  "version": "0.5.0",
-  "description": "TypeScript SDK for Absurd - PostgreSQL-based durable task execution",
+  "name": "absurd-effect",
+  "version": "0.1.0",
+  "description": "Effect WorkflowEngine adapter for Absurd",
   "keywords": [
     "absurd",
     "durable",
+    "effect",
     "postgresql",
-    "queue",
-    "task",
     "workflow"
   ],
   "license": "Apache-2.0",
   "author": "",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/earendil-works/absurd.git"
+    "url": "git+https://github.com/earendil-works/absurd.git",
+    "directory": "sdks/effect"
   },
   "files": [
     "dist",
@@ -33,22 +33,23 @@
   "scripts": {
     "build": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc --project tsconfig.build.json && tsc --project tsconfig.cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
     "type-check": "tsc --noEmit",
-    "prepare": "vp run build",
-    "docs": "typedoc"
+    "prepare": "vp run build"
   },
   "devDependencies": {
+    "@effect/sql-pg": "4.0.0-rc.108",
     "@effect/vitest": "4.0.0-rc.108",
     "@testcontainers/postgresql": "^11.7.2",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
+    "absurd-sdk": "workspace:*",
     "effect": "4.0.0-rc.108",
-    "typedoc": "0.28.20",
+    "pg": "^8.13.1",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
-    "pg": "^8.0.0"
+    "effect": ">=4.0.0-rc.108 <5"
   },
   "engines": {
     "node": ">=18.0.0"

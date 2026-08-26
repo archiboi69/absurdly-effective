@@ -116,5 +116,8 @@ Tests use `absurd.fake_now` session variable to control time. See
 
 ## SDK Essentials
 
-The goal for the SDKs is to be as simple as possible.  The TypeScript SDK is an attempt
-at this, but ideally one could have even lighter SDKs.
+The goal for the SDKs is to be as simple as possible. The promise-based
+TypeScript SDK stays independent of Effect; the separate Effect SDK adapts
+Absurd to Effect's native `WorkflowEngine`. Language-neutral workflow producers
+belong in the ordinary SDKs, while Effect runtime semantics belong only in the
+Effect adapter.

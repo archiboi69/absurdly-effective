@@ -23,7 +23,7 @@ import {
 // oxlint-disable anti-slop/require-safety-comment-for-type-assertion
 // This suite explicitly verifies Effect's DateFromString Type-side contract.
 // oxlint-disable effecttsgo/global-date
-import { describe, expect, it } from "./testlib.ts";
+import { describe, expect, it } from "@effect/vitest";
 
 class Boom extends Schema.TaggedError<Boom>()("persistence-test/Boom", {
   code: Schema.FiniteFromString,

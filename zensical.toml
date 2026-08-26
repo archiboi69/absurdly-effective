@@ -39,6 +39,7 @@ nav = [
     {"SDKs" = [
         {"Overview" = "sdks/index.md"},
         {"TypeScript" = "sdks/typescript.md"},
+        {"Effect" = "sdks/effect.md"},
         {"Python" = "sdks/python.md"},
     ]},
 

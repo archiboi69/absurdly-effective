@@ -2,6 +2,7 @@
 
 # Format all code
 format:
+	@cd sdks/effect && vp fmt
 	@cd sdks/typescript && vp fmt
 	@cd habitat/ui && vp fmt
 	@uvx ruff format tests sdks/python
@@ -45,7 +46,8 @@ test-core:
 # Run TypeScript SDK checks and tests
 test-typescript:
 	@echo "Running TypeScript SDK checks and tests"
-	@cd sdks/typescript && vp run type-check && vp run test
+	@cd sdks/effect && vp run type-check && vp test run
+	@cd sdks/typescript && vp run type-check && vp test run
 
 # Run Python SDK tests
 test-python:

@@ -10,9 +10,10 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { Workflow } from "effect/unstable/workflow";
-import { Absurd, AbsurdWorkflowEngine } from "../src/index.ts";
+import { Absurd } from "absurd-sdk";
+import { AbsurdWorkflowEngine } from "../src/index.ts";
 import { pool, randomName } from "./setup.ts";
-import { assert, beforeAll, describe, expect, it } from "./testlib.ts";
+import { assert, beforeAll, describe, expect, it } from "@effect/vitest";
 
 // Testcontainers and explicit runtime scopes intentionally surface their
 // infrastructure failures as unknown at this integration-test boundary.

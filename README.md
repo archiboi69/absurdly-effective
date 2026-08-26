@@ -52,6 +52,7 @@ See the [quickstart guide](https://earendil-works.github.io/absurd/quickstart/) 
 Currently SDKs exist for the following languages:
 
 * [TypeScript](sdks/typescript) (and JavaScript)
+* [Effect](sdks/effect) (`WorkflowEngine` adapter)
 * [Python](sdks/python)
 
 ## Push vs Pull
@@ -201,6 +202,7 @@ More detail lives in the docs:
 
 - [Quickstart](https://earendil-works.github.io/absurd/quickstart/)
 - [TypeScript SDK](https://earendil-works.github.io/absurd/sdks/typescript/)
+- [Effect SDK](https://earendil-works.github.io/absurd/sdks/effect/)
 - [Python SDK](https://earendil-works.github.io/absurd/sdks/python/)
 - [Database Setup and Migrations](https://earendil-works.github.io/absurd/database/)
 - [Concepts](https://earendil-works.github.io/absurd/concepts/) — includes retry semantics, worker claims, and idempotency keys

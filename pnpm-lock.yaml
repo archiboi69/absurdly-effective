@@ -189,15 +189,48 @@ importers:
         specifier: 'catalog:'
         version: 0.3.0(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0))(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
 
+  sdks/effect:
+    devDependencies:
+      '@effect/sql-pg':
+        specifier: 4.0.0-rc.108
+        version: 4.0.0-rc.108(effect@4.0.0-rc.108)
+      '@effect/vitest':
+        specifier: 4.0.0-rc.108
+        version: 4.0.0-rc.108(effect@4.0.0-rc.108)(vitest@4.1.11)
+      '@testcontainers/postgresql':
+        specifier: ^11.7.2
+        version: 11.14.0
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.23.1
+      absurd-sdk:
+        specifier: workspace:*
+        version: link:../typescript
+      effect:
+        specifier: 4.0.0-rc.108
+        version: 4.0.0-rc.108
+      pg:
+        specifier: ^8.13.1
+        version: 8.23.0
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.3.0
+        version: '@voidzero-dev/vite-plus-core@0.3.0(@types/node@22.20.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 0.3.0(@types/node@22.20.1)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@22.20.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0))(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
+
   sdks/typescript:
     dependencies:
       pg:
         specifier: ^8.0.0
         version: 8.23.0
     devDependencies:
-      '@effect/sql-pg':
-        specifier: 4.0.0-rc.108
-        version: 4.0.0-rc.108(effect@4.0.0-rc.108)
       '@effect/vitest':
         specifier: 4.0.0-rc.108
         version: 4.0.0-rc.108(effect@4.0.0-rc.108)(vitest@4.1.11)

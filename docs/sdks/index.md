@@ -3,6 +3,7 @@
 Absurd currently has first-party SDKs for:
 
 - **[TypeScript](./typescript.md)** (also usable from JavaScript)
+- **[Effect](./effect.md)** (native `WorkflowEngine` adapter)
 - **[Python](./python.md)**
 
 Absurd SDKs are intentionally lightweight. Most durable-execution complexity

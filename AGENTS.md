@@ -13,6 +13,7 @@ lives in Postgres tables prefixed by queue name (`t_`, `r_`, `c_`, `e_`, `w_`).
 
 - **sql/absurd.sql** - Core Postgres schema and stored procedures. This is the heart of the system.
 - **sdks/typescript/** - TypeScript SDK (`absurd-sdk` on npm)
+- **sdks/effect/** - Effect-native `WorkflowEngine` adapter (`absurd-effect` on npm)
 - **habitat/** - Go-based web UI for monitoring tasks, runs, and events
 - **absurdctl** - Python-based CLI tool for queue/task management and debugging
 - **tests/** - Python test suite using psycopg and testcontainers
@@ -42,10 +43,21 @@ Tests use vitest through Vite+ (`vp test run` / `vp test watch` from
 `sdks/typescript`); shared config lives in `sdks/typescript/vite.config.ts`
 under the `test` section — there is no separate `vitest.config.ts`.
 
+### Effect SDK
+
+```bash
+vp install                 # from the workspace root
+vp run absurd-effect#build # Compiles to dist/ (both ESM and CommonJS)
+cd sdks/effect && vp test run
+```
+
+Effect tests import `@effect/vitest` directly; package-local test configuration
+lives in `sdks/effect/vite.config.ts`.
+
 Effect type-aware diagnostics run inside `vp lint`: a root `postinstall` hook
 (`effect-tsgo patch --no-typescript --oxlint`) patches the Oxlint embedded in
 Vite+ with the `effecttsgo` plugin, and `vite.config.ts` enables every
-`effecttsgo` rule at `error` severity for `sdks/typescript/**` via
+`effecttsgo` rule at `error` severity for `sdks/effect/**` via
 `lint.overrides`. The `@effect/tsgo` version must stay
 compatible with the Oxlint/`oxlint-tsgolint` versions bundled by Vite+ per the
 [compatibility matrix](https://github.com/Effect-TS/tsgo#supported-package-versions).
@@ -70,7 +82,7 @@ uv run pytest test_foo.py  # Run single test file
 ### Formatting
 
 ```bash
-make format     # Format TypeScript SDK, habitat UI, and Python tests
+make format     # Format TypeScript/Effect SDKs, habitat UI, and Python tests
 ```
 
 ## Habitat Web UI

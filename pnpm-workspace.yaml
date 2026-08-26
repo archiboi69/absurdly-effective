@@ -1,4 +1,5 @@
 packages:
+  - sdks/effect
   - sdks/typescript
   - habitat/ui
 

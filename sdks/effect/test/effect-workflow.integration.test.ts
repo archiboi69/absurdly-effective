@@ -12,9 +12,9 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { Activity, DurableDeferred, Workflow, WorkflowEngine } from "effect/unstable/workflow";
-import { beforeAll, describe, expect, it } from "./testlib.ts";
+import { beforeAll, describe, expect, it } from "@effect/vitest";
 import { pool, randomName } from "./setup.ts";
-import * as AbsurdSdk from "../src/index.ts";
+import { AbsurdWorkflowEngine, type QueueOptions } from "../src/index.ts";
 
 // This suite exercises the engine's persistence boundaries directly: schemas
 // with transformations, raw SQL row shapes, and deliberately broken
@@ -27,8 +27,6 @@ import * as AbsurdSdk from "../src/index.ts";
 // oxlint-disable effecttsgo/schema-number
 // oxlint-disable effecttsgo/deterministic-keys
 // oxlint-disable effecttsgo/unsafe-effect-type-assertion
-
-const AbsurdWorkflowEngine = AbsurdSdk.AbsurdWorkflowEngine;
 
 const connectionString = () =>
   pool.options.connectionString ??
@@ -83,7 +81,7 @@ const buildRuntime = (
   name: string,
   handlerLayers: Array<AnyLayer>,
   options: {
-    readonly queues: Record<string, AbsurdSdk.QueueOptions>;
+    readonly queues: Record<string, QueueOptions>;
     readonly clientLayer?: Layer.Layer<SqlClient.SqlClient, unknown, unknown> | undefined;
   },
 ): Effect.Effect<BuiltRuntime, unknown, never> =>
@@ -108,7 +106,7 @@ const withRuntime = <A, E>(
   name: string,
   handlerLayers: Array<AnyLayer>,
   options: {
-    readonly queues: Record<string, AbsurdSdk.QueueOptions>;
+    readonly queues: Record<string, QueueOptions>;
     readonly clientLayer?: Layer.Layer<SqlClient.SqlClient, unknown, unknown> | undefined;
   },
   use: (context: Context.Context<WorkflowEngine.WorkflowEngine>) => Effect.Effect<A, E>,
@@ -282,7 +280,7 @@ describe("AbsurdWorkflowEngine durability", () => {
   const fenceQueue = `${runPrefix}_fence`;
   const heartbeatQueue = `${runPrefix}_heartbeat`;
   const interruptQueue = `${runPrefix}_interrupt`;
-  const fastQueues = (queue: string, extra: AbsurdSdk.QueueOptions = {}) => ({
+  const fastQueues = (queue: string, extra: QueueOptions = {}) => ({
     [queue]: { concurrency: 1, pollInterval: Duration.millis(10), ...extra },
   });
 

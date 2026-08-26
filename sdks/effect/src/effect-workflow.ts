@@ -57,7 +57,7 @@ import {
  * `AbsurdWorkflowEngine.inQueue`.
  */
 class QueueAnnotation extends Context.Reference<string>(
-  "absurd-sdk/AbsurdWorkflowEngine/QueueAnnotation",
+  "absurd-effect/AbsurdWorkflowEngine/QueueAnnotation",
   { defaultValue: () => "" },
 ) {}
 
@@ -82,7 +82,7 @@ interface ActiveClaim {
  * claimed queue/task/run triple without rereading mutable ownership columns.
  */
 class ClaimContext extends Context.Service<ClaimContext, ActiveClaim>()(
-  "absurd-sdk/effect-workflow/ClaimContext",
+  "absurd-effect/effect-workflow/ClaimContext",
 ) {}
 
 const MAX_QUEUE_NAME_LENGTH = 57;
@@ -173,7 +173,7 @@ class ExecutionStatusService extends Context.Service<
       executionId: string,
     ) => Effect.Effect<AbsurdWorkflowExecutionStatus<unknown, unknown>>;
   }
->()("absurd-sdk/effect-workflow/ExecutionStatusService") {}
+>()("absurd-effect/effect-workflow/ExecutionStatusService") {}
 
 interface Registration {
   readonly workflow: Workflow.Any;

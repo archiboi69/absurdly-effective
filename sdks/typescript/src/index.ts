@@ -1,15 +1,9 @@
 /**
  * Absurd SDK for TypeScript and JavaScript
  */
+import { createHash } from "crypto";
 import * as pg from "pg";
 import * as os from "os";
-
-export { AbsurdWorkflowEngine } from "./effect-workflow.ts";
-export type {
-  AbsurdWorkflowExecutionStatus,
-  LayerOptions,
-  QueueOptions,
-} from "./effect-workflow.ts";
 
 export type Queryable = Pick<pg.Client, "query"> | Pick<pg.PoolClient, "query">;
 
@@ -117,6 +111,31 @@ export interface SpawnResult {
   runID: string;
   attempt: number;
   created: boolean;
+}
+
+export interface WorkflowSpawnResult {
+  /** Effect's deterministic workflow execution ID. Persist this application-side. */
+  executionID: string;
+  /** Absurd's backing task UUID. This is an operational storage identifier. */
+  taskID: string;
+}
+
+const EFFECT_WORKFLOW_INFRASTRUCTURE_MAX_ATTEMPTS = 5;
+
+/**
+ * Returns the deterministic execution ID used by Effect's `Workflow.executionId`.
+ *
+ * Non-Effect producers use this value as Absurd's idempotency key when
+ * dispatching work to an Effect WorkflowEngine.
+ */
+export function effectWorkflowExecutionId(
+  workflowName: string,
+  businessIdempotencyKey: string,
+): string {
+  return createHash("sha256")
+    .update(`${workflowName}-${businessIdempotencyKey}`, "utf8")
+    .digest("hex")
+    .slice(0, 32);
 }
 
 export type TaskResultState =
@@ -909,6 +928,28 @@ export class Absurd {
       attempt: row.attempt,
       created: row.created,
     };
+  }
+
+  /**
+   * Dispatches an Effect workflow from promise-based TypeScript code.
+   *
+   * The business idempotency key is converted to Effect's deterministic
+   * execution ID and stored as Absurd's task idempotency key. Infrastructure
+   * retries are bounded; business retries remain owned by workflow Activities.
+   */
+  async spawnWorkflow<P = JsonValue>(
+    workflowName: string,
+    payload: P,
+    businessIdempotencyKey: string,
+  ): Promise<WorkflowSpawnResult> {
+    const executionID = effectWorkflowExecutionId(workflowName, businessIdempotencyKey);
+    const spawned = await this.spawn(workflowName, payload, {
+      queue: this.queueName,
+      maxAttempts: EFFECT_WORKFLOW_INFRASTRUCTURE_MAX_ATTEMPTS,
+      idempotencyKey: executionID,
+      retryStrategy: { kind: "fixed", baseSeconds: 1 },
+    });
+    return { executionID, taskID: spawned.taskID };
   }
 
   /**
