@@ -22,29 +22,27 @@ and records every step and decision.
 uv add absurd-sdk
 ```
 
-## Dispatching an Effect workflow
+## Dispatching work to another SDK
 
-When Python produces work for an Effect `WorkflowEngine`, use
-`spawn_effect_workflow`. It derives Effect's execution ID from the workflow name and
-your business idempotency key, stores it as Absurd's idempotency key, and uses
-Effect's bounded fixed one-second infrastructure retry strategy. Persist the
-returned execution ID for native `Workflow.poll`, `Workflow.resume`, and
-`Workflow.interrupt` calls; the task UUID is only a storage detail. Business
-retries belong inside the Effect workflow around its `Activity` operations.
+This package remains generic and does not depend on Effect. If another system
+gives you a stable execution or correlation ID, pass it through the ordinary
+`idempotency_key` spawn option:
 
 ```python
 from absurd_sdk import Absurd
 
-workflow_name = "ShippingBroker/Finance/IssueSalesInvoice"
-spawned = Absurd().spawn_effect_workflow(
-    workflow_name,
+execution_id = "execution-id-from-the-workflow-system"
+spawned = Absurd().spawn(
+    "ShippingBroker/Finance/IssueSalesInvoice",
     {"attemptId": 123},
-    "123",
+    idempotency_key=execution_id,
 )
 
-execution_id = spawned["execution_id"]
-task_id = spawned["task_id"]
+assert spawned["task_id"]
 ```
+
+The SDK treats the value as an opaque Absurd idempotency key. Reusing it returns
+the existing task, regardless of which SDK or worker originally produced it.
 
 ## Synchronous API
 

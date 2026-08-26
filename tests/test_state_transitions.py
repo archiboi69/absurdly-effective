@@ -5,9 +5,7 @@ from psycopg.sql import SQL
 
 
 @pytest.mark.parametrize("storage_mode", ["unpartitioned", "partitioned"])
-def test_schedule_run_moves_task_between_running_and_sleeping(
-    client, storage_mode
-):
+def test_schedule_run_moves_task_between_running_and_sleeping(client, storage_mode):
     queue = f"schedule-state-{storage_mode}"
     client.create_queue(queue, storage_mode=storage_mode)
 
@@ -32,8 +30,9 @@ def test_schedule_run_moves_task_between_running_and_sleeping(
     assert task_after_schedule["state"] == "sleeping"
 
     resumed_at = base + timedelta(minutes=1)
-    client.schedule_run(queue, run_id, resumed_at)
     client.set_fake_now(resumed_at)
+    wake = client.wake_task(queue, spawn.task_id)
+    assert wake == {"run_id": run_id, "previous_state": "sleeping"}
     resumed = client.claim_tasks(queue, worker="worker-1", claim_timeout=120)[0]
     assert resumed["run_id"] == run_id
     assert resumed["attempt"] == 1

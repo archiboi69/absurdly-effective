@@ -38,26 +38,26 @@ See the [absurdctl docs](https://earendil-works.github.io/absurd/tools/absurdctl
 the full CLI reference, including
 [`uvx`](https://docs.astral.sh/uv/guides/tools/) usage.
 
-## Dispatching an Effect workflow
+## Dispatching work to another SDK
 
-This package remains a promise-based TypeScript SDK and does not depend on
-Effect. When it produces work for an Effect workflow worker, use
-`spawnEffectWorkflow`. It derives Effect's execution ID, applies the workflow
-infrastructure retry defaults, and returns both identities:
+This package remains generic and does not depend on Effect. If another system
+gives you a stable execution or correlation ID, pass it through the ordinary
+`idempotencyKey` spawn option:
 
 ```typescript
-const spawned = await app.spawnEffectWorkflow(
+const executionId = "execution-id-from-the-workflow-system";
+
+const spawned = await app.spawn(
   "ShippingBroker/Finance/IssueSalesInvoice",
   { attemptId: 123 },
-  "123",
+  { idempotencyKey: executionId },
 );
 
-await saveExecutionId(spawned.executionID);
+await saveExecutionId(executionId);
 ```
 
-Persist `executionID` for Effect's native `poll`, `resume`, and `interrupt`.
-The backing `taskID` is an Absurd operational detail. Use the separate
-[`absurd-effect`](../effect) package to run Effect workflows.
+The SDK treats the value as an opaque Absurd idempotency key. Reusing it returns
+the existing task, regardless of which SDK or worker originally produced it.
 
 ## Quick Start
 

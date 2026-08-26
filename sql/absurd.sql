@@ -748,71 +748,105 @@ begin
 end;
 $$;
 
--- Resolves a task by its idempotency key without exposing queue table layout
--- to SDKs. Zero rows means that no such task currently exists (it may also
--- have been removed by queue cleanup). Partitioned queues resolve through
--- their authoritative idempotency registry instead of scanning task partitions.
-create function absurd.get_task_by_idempotency_key (
-  p_queue_name text,
-  p_idempotency_key text
-)
-  returns table (
-    task_id uuid,
-    last_attempt_run uuid
-  )
-  language plpgsql
-as $$
-declare
-  v_storage_mode text;
-begin
-  p_queue_name := absurd.validate_queue_name(p_queue_name);
-
-  select q.storage_mode
-    into v_storage_mode
-    from absurd.queues q
-   where q.queue_name = p_queue_name;
-
-  if v_storage_mode = 'partitioned' then
-    return query execute format(
-      'select i.task_id, t.last_attempt_run
-         from absurd.%I i
-         join absurd.%I t on t.task_id = i.task_id
-        where i.idempotency_key = $1',
-      'i_' || p_queue_name,
-      't_' || p_queue_name
-    ) using p_idempotency_key;
-    return;
-  end if;
-
-  return query execute format(
-    'select task_id, last_attempt_run
-       from absurd.%I
-      where idempotency_key = $1',
-    't_' || p_queue_name
-  ) using p_idempotency_key;
-end;
-$$;
-
--- Returns the idempotency key attached to a task. SDK adapters can use this
--- after claiming a task to recover their own durable execution identity.
-create function absurd.get_task_idempotency_key (
+-- Wakes the current run for a task without assigning meaning to the wake.
+--
+-- Sleeping and delayed pending runs become immediately claimable. Running
+-- runs keep their claims so callers can compose their own durable signal in
+-- the same transaction. Terminal tasks are idempotent no-ops. The active
+-- run and task locks intentionally remain held until the caller transaction
+-- commits, allowing that composition to be atomic with this transition.
+create function absurd.wake_task (
   p_queue_name text,
   p_task_id uuid
 )
   returns table (
-    idempotency_key text
+    run_id uuid,
+    previous_state text
   )
   language plpgsql
 as $$
+declare
+  v_now timestamptz := absurd.current_time();
+  v_run_id uuid;
+  v_task_state text;
+  v_run_state text;
 begin
   p_queue_name := absurd.validate_queue_name(p_queue_name);
 
-  return query execute format(
-    'select idempotency_key
+  -- Match complete_run()/fail_run()/cancel_task() lock order.
+  execute format(
+    'select run_id
        from absurd.%I
-      where task_id = $1',
-    't_' || p_queue_name
+      where task_id = $1
+        and state not in (''completed'', ''failed'', ''cancelled'')
+      order by run_id
+      for update',
+    'r_' || p_queue_name
   ) using p_task_id;
+
+  execute format(
+    'select state, last_attempt_run
+       from absurd.%I
+      where task_id = $1
+      for update',
+    't_' || p_queue_name
+  )
+  into v_task_state, v_run_id
+  using p_task_id;
+
+  if v_task_state is null then
+    raise exception 'Task "%" not found in queue "%"', p_task_id, p_queue_name;
+  end if;
+
+  if v_task_state in ('completed', 'failed', 'cancelled') then
+    return query select v_run_id, v_task_state;
+    return;
+  end if;
+
+  if v_run_id is null then
+    raise exception 'Task "%" has no current run in queue "%"', p_task_id, p_queue_name;
+  end if;
+
+  execute format(
+    'select state
+       from absurd.%I
+      where run_id = $1',
+    'r_' || p_queue_name
+  )
+  into v_run_state
+  using v_run_id;
+
+  if v_run_state in ('pending', 'sleeping') then
+    execute format(
+      'update absurd.%I
+          set state = ''pending'',
+              available_at = $2,
+              claimed_by = null,
+              claim_expires_at = null,
+              wake_event =
+                case when state = ''sleeping'' then null else wake_event end,
+              event_payload =
+                case when state = ''sleeping'' then null else event_payload end
+        where run_id = $1',
+      'r_' || p_queue_name
+    ) using v_run_id, v_now;
+
+    execute format(
+      'update absurd.%I
+          set state = ''pending''
+        where task_id = $1
+          and state in (''pending'', ''sleeping'')',
+      't_' || p_queue_name
+    ) using p_task_id;
+
+    -- Explicit wake supersedes the current event wait.
+    execute format(
+      'delete from absurd.%I where run_id = $1',
+      'w_' || p_queue_name
+    ) using v_run_id;
+  end if;
+
+  return query select v_run_id, v_task_state;
 end;
 $$;
 
@@ -1213,9 +1247,9 @@ declare
 begin
   execute format(
     'select task_id
-      from absurd.%I
+       from absurd.%I
       where run_id = $1
-        and state in (''running'', ''sleeping'')
+        and state = ''running''
       for update',
     'r_' || p_queue_name
   )
@@ -1223,7 +1257,7 @@ begin
   using p_run_id;
 
   if v_task_id is null then
-    raise exception 'Run "%" is not active in queue "%"', p_run_id, p_queue_name;
+    raise exception 'Run "%" is not currently running in queue "%"', p_run_id, p_queue_name;
   end if;
 
   execute format(
@@ -1609,92 +1643,6 @@ begin
       'c_' || p_queue_name
     ) using p_task_id, p_step_name, p_state, p_owner_run, v_now;
   end if;
-end;
-$$;
-
--- Deposits a durable safe-interruption request and makes a parked task
--- immediately claimable. Absurd owns the reserved `$absurd:interrupt`
--- checkpoint; SDKs must request interruption through this function rather than
--- writing that marker themselves. Replay is responsible for interpreting the
--- signal and running any workflow-level compensation.
-create function absurd.request_task_interrupt (
-  p_queue_name text,
-  p_task_id uuid
-)
-  returns void
-  language plpgsql
-as $$
-declare
-  v_checkpoint_name constant text := '$absurd:interrupt';
-  v_now timestamptz := absurd.current_time();
-  v_task_state text;
-  v_owner_run uuid;
-begin
-  -- Match complete_run()/fail_run()/cancel_task() lock order: active runs first,
-  -- then the task row.
-  execute format(
-    'select run_id
-       from absurd.%I
-      where task_id = $1
-        and state not in (''completed'', ''failed'', ''cancelled'')
-      order by run_id
-      for update',
-    'r_' || p_queue_name
-  ) using p_task_id;
-
-  execute format(
-    'select state, last_attempt_run
-       from absurd.%I
-      where task_id = $1
-      for update',
-    't_' || p_queue_name
-  )
-  into v_task_state, v_owner_run
-  using p_task_id;
-
-  if v_task_state is null then
-    raise exception 'Task "%" not found in queue "%"', p_task_id, p_queue_name;
-  end if;
-
-  if v_task_state in ('completed', 'failed', 'cancelled') then
-    return;
-  end if;
-
-  execute format(
-    'insert into absurd.%I (task_id, checkpoint_name, state, status, owner_run_id, updated_at)
-     values ($1, $2, ''true''::jsonb, ''committed'', $3, $4)
-     on conflict (task_id, checkpoint_name) do nothing',
-    'c_' || p_queue_name
-  ) using p_task_id, v_checkpoint_name, v_owner_run, v_now;
-
-  -- A running worker observes the request when it next suspends. Pending and
-  -- sleeping runs are made claimable now so replay can deliver the interrupt.
-  execute format(
-    'update absurd.%I
-        set state = ''pending'',
-            available_at = $2,
-            wake_event = null,
-            event_payload = null,
-            claimed_by = null,
-            claim_expires_at = null
-      where task_id = $1
-        and state in (''pending'', ''sleeping'')',
-    'r_' || p_queue_name
-  ) using p_task_id, v_now;
-
-  execute format(
-    'update absurd.%I
-        set state = ''pending''
-      where task_id = $1
-        and state in (''pending'', ''sleeping'')',
-    't_' || p_queue_name
-  ) using p_task_id;
-
-  -- The interrupt supersedes any event wait belonging to the parked run.
-  execute format(
-    'delete from absurd.%I where task_id = $1',
-    'w_' || p_queue_name
-  ) using p_task_id;
 end;
 $$;
 

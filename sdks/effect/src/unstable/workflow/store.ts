@@ -18,9 +18,9 @@ import * as Schema from "effect/Schema";
  * JSON-safe structures; this module owns serialization to `jsonb` text and
  * returns raw rows. Operational state transitions are performed exclusively
  * through Absurd stored procedures (`spawn_task`, `claim_task`,
- * `complete_run`, `fail_run`, `schedule_run`, `set_task_checkpoint_state`,
- * `get_task_checkpoint_state`, `await_event`, `emit_event`,
- * `request_task_interrupt`, `cancel_task`, `extend_claim`, `get_task_result`),
+ * `complete_run`, `fail_run`, `schedule_run`, `wake_task`,
+ * `set_task_checkpoint_state`, `get_task_checkpoint_state`, `await_event`,
+ * `emit_event`, `cancel_task`, `extend_claim`, `get_task_result`),
  * keeping locking and transition policy in the database layer. Remaining
  * statements are reads for observability and control-flow decisions.
  *
@@ -61,6 +61,27 @@ const AwaitEventRow = Schema.Struct({ should_suspend: Schema.Boolean });
 
 const CheckpointStateRow = Schema.Struct({ state: Schema.Unknown });
 const ExecutionIdRow = Schema.Struct({ idempotency_key: Schema.NullOr(Schema.String) });
+const QueueStorageModeRow = Schema.Struct({
+  storage_mode: Schema.Literals(["unpartitioned", "partitioned"]),
+});
+const WakeTaskRow = Schema.Struct({
+  run_id: Schema.String,
+  previous_state: Schema.Literals([
+    "pending",
+    "running",
+    "sleeping",
+    "completed",
+    "failed",
+    "cancelled",
+  ]),
+});
+
+const quoteQueueTable = (prefix: "t_" | "i_", queue: string): string => {
+  if (!/^[A-Za-z0-9_]+$/.test(queue) || queue.length > 57) {
+    throw new Error("Invalid Absurd queue name.");
+  }
+  return '"absurd"."' + prefix + queue + '"';
+};
 
 /**
  * Decode a query whose SQL contract guarantees exactly one row. An empty or
@@ -108,6 +129,10 @@ interface AbsurdWorkflowStore {
     queue: string,
     taskId: string,
   ) => Effect.Effect<Option.Option<string>, SqlError.SqlError>;
+  readonly wakeTask: (
+    queue: string,
+    taskId: string,
+  ) => Effect.Effect<typeof WakeTaskRow.Type, SqlError.SqlError>;
   readonly claimTask: (
     queue: string,
     workerId: string,
@@ -133,7 +158,6 @@ interface AbsurdWorkflowStore {
     runId: string,
     seconds: number,
   ) => Effect.Effect<void, SqlError.SqlError>;
-  readonly resumeRun: (queue: string, runId: string) => Effect.Effect<void, SqlError.SqlError>;
   readonly awaitEvent: (
     queue: string,
     taskId: string,
@@ -147,10 +171,6 @@ interface AbsurdWorkflowStore {
     payload: unknown,
   ) => Effect.Effect<void, SqlError.SqlError>;
   readonly cancelTask: (queue: string, taskId: string) => Effect.Effect<void, SqlError.SqlError>;
-  readonly requestTaskInterrupt: (
-    queue: string,
-    taskId: string,
-  ) => Effect.Effect<void, SqlError.SqlError>;
   readonly checkpointState: (
     queue: string,
     taskId: string,
@@ -182,23 +202,44 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
     ),
 
   taskByExecutionId: (queue, executionId) =>
-    optionalRow(
-      ExecutionTaskRow,
-      sql.unsafe(
-        `select task_id, last_attempt_run
-           from absurd.get_task_by_idempotency_key($1, $2)`,
-        [queue, executionId],
-      ),
-    ),
+    Effect.gen(function* () {
+      const storageMode = yield* requiredRow(
+        QueueStorageModeRow,
+        sql.unsafe(
+          "select coalesce(" +
+            "(select storage_mode from absurd.queues where queue_name = $1), " +
+            "'unpartitioned') as storage_mode",
+          [queue],
+        ),
+      );
+      const taskTable = quoteQueueTable("t_", queue);
+      const idempotencyTable = quoteQueueTable("i_", queue);
+      const query =
+        storageMode.storage_mode === "partitioned"
+          ? "select t.task_id, t.last_attempt_run " +
+            "from " +
+            idempotencyTable +
+            " i join " +
+            taskTable +
+            " t on t.task_id = i.task_id where i.idempotency_key = $1"
+          : "select task_id, last_attempt_run from " + taskTable + " where idempotency_key = $1";
+      return yield* optionalRow(ExecutionTaskRow, sql.unsafe(query, [executionId]));
+    }),
 
   executionIdForTask: (queue, taskId) =>
     optionalRow(
       ExecutionIdRow,
-      sql.unsafe(`select idempotency_key from absurd.get_task_idempotency_key($1, $2)`, [
-        queue,
-        taskId,
-      ]),
+      sql.unsafe(
+        "select idempotency_key from " + quoteQueueTable("t_", queue) + " where task_id = $1",
+        [taskId],
+      ),
     ).pipe(Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.idempotency_key)))),
+
+  wakeTask: (queue, taskId) =>
+    requiredRow(
+      WakeTaskRow,
+      sql.unsafe("select run_id, previous_state from absurd.wake_task($1, $2)", [queue, taskId]),
+    ),
 
   claimTask: (queue, workerId, claimTimeoutSeconds) =>
     optionalRow(
@@ -231,11 +272,6 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
       ),
     ),
 
-  resumeRun: (queue, runId) =>
-    Effect.asVoid(
-      sql.unsafe(`select absurd.schedule_run($1, $2, absurd.current_time())`, [queue, runId]),
-    ),
-
   awaitEvent: (queue, taskId, runId, checkpointName, eventName) =>
     requiredRow(
       AwaitEventRow,
@@ -255,9 +291,6 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
 
   cancelTask: (queue, taskId) =>
     Effect.asVoid(sql.unsafe(`select absurd.cancel_task($1, $2)`, [queue, taskId])),
-
-  requestTaskInterrupt: (queue, taskId) =>
-    Effect.asVoid(sql.unsafe(`select absurd.request_task_interrupt($1, $2)`, [queue, taskId])),
 
   checkpointState: (queue, taskId, checkpointName) =>
     optionalRow(

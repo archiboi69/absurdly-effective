@@ -60,7 +60,7 @@ import {
  * `AbsurdWorkflowEngine.inQueue`.
  */
 class QueueAnnotation extends Context.Reference<string>(
-  "absurd-effect/AbsurdWorkflowEngine/QueueAnnotation",
+  "absurd-effect/unstable/workflow/QueueAnnotation",
   { defaultValue: () => "" },
 ) {}
 
@@ -85,7 +85,7 @@ interface ActiveClaim {
  * claimed queue/task/run triple without rereading mutable ownership columns.
  */
 class ClaimContext extends Context.Service<ClaimContext, ActiveClaim>()(
-  "absurd-effect/engine/ClaimContext",
+  "absurd-effect/unstable/workflow/ClaimContext",
 ) {}
 
 const MAX_QUEUE_NAME_LENGTH = 57;
@@ -176,7 +176,7 @@ class ExecutionStatusService extends Context.Service<
       executionId: string,
     ) => Effect.Effect<AbsurdWorkflowExecutionStatus<unknown, unknown>>;
   }
->()("absurd-effect/engine/ExecutionStatusService") {}
+>()("absurd-effect/unstable/workflow/ExecutionStatusService") {}
 
 interface Registration {
   readonly workflow: Workflow.Any;
@@ -211,8 +211,8 @@ const activityCheckpointName = (name: string, attempt: number): string =>
   `$activity:${name}:${attempt}`;
 const deferredCheckpointName = (name: string): string => `$defer:${name}`;
 const clockDeadlineCheckpointName = (deferredName: string): string => `$clock:${deferredName}`;
-// Reserved and written exclusively by absurd.request_task_interrupt().
-const INTERRUPT_CHECKPOINT_NAME = "$absurd:interrupt";
+// Reserved and written exclusively by this adapter's interrupt transaction.
+const INTERRUPT_CHECKPOINT_NAME = "$effect:interrupt";
 const deferredEventName = (
   workflowTag: string,
   executionId: string,
@@ -459,7 +459,7 @@ const makeServices = (options: LayerOptions) =>
             store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
           );
           if (Option.isSome(racedInterrupt)) {
-            yield* fatal(store.requestTaskInterrupt(claim.queue, claim.taskId));
+            yield* fatal(store.wakeTask(claim.queue, claim.taskId));
           }
           return;
         }
@@ -478,7 +478,7 @@ const makeServices = (options: LayerOptions) =>
             store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
           );
           if (Option.isSome(racedInterrupt)) {
-            yield* fatal(store.requestTaskInterrupt(claim.queue, claim.taskId));
+            yield* fatal(store.wakeTask(claim.queue, claim.taskId));
           }
           return;
         }
@@ -496,7 +496,7 @@ const makeServices = (options: LayerOptions) =>
         store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
       );
       if (Option.isSome(racedInterrupt)) {
-        yield* fatal(store.requestTaskInterrupt(claim.queue, claim.taskId));
+        yield* fatal(store.wakeTask(claim.queue, claim.taskId));
       }
     });
 
@@ -675,10 +675,33 @@ const makeServices = (options: LayerOptions) =>
       executionId: string,
     ): Effect.fn.Return<void> {
       const queue = queueFor(workflow);
-      const task = yield* fatal(store.taskByExecutionId(queue, executionId));
-      if (Option.isSome(task)) {
-        yield* fatal(store.requestTaskInterrupt(queue, task.value.task_id));
-      }
+      yield* Effect.orDie(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const task = yield* fatal(store.taskByExecutionId(queue, executionId));
+            if (Option.isNone(task)) return;
+
+            const wake = yield* fatal(store.wakeTask(queue, task.value.task_id));
+            if (
+              wake.previous_state === "completed" ||
+              wake.previous_state === "failed" ||
+              wake.previous_state === "cancelled"
+            ) {
+              return;
+            }
+
+            yield* fatal(
+              store.setCheckpointState(
+                queue,
+                task.value.task_id,
+                INTERRUPT_CHECKPOINT_NAME,
+                true,
+                wake.run_id,
+              ),
+            );
+          }),
+        ),
+      );
     });
 
     const queueForDeferred = Effect.fnUntraced(function* (
@@ -753,8 +776,8 @@ const makeServices = (options: LayerOptions) =>
       resume: Effect.fnUntraced(function* (workflow, executionId) {
         const queue = queueFor(workflow);
         const task = yield* fatal(store.taskByExecutionId(queue, executionId));
-        if (Option.isSome(task) && task.value.last_attempt_run !== null) {
-          yield* fatal(store.resumeRun(queue, task.value.last_attempt_run));
+        if (Option.isSome(task)) {
+          yield* fatal(store.wakeTask(queue, task.value.task_id));
         }
       }),
 

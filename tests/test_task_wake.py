@@ -1,19 +1,14 @@
+"""SQL contract tests for absurd.wake_task."""
+
 import threading
 import time
+import uuid
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 import pytest
 from psycopg import sql
 from psycopg.types.json import Jsonb
-
-INTERRUPT_CHECKPOINT = "$absurd:interrupt"
-
-
-def _request_interrupt(client, queue, task_id):
-    client.conn.execute(
-        "select absurd.request_task_interrupt(%s, %s)",
-        (queue, task_id),
-    )
 
 
 def _set_application_name(conn, name):
@@ -36,6 +31,18 @@ def _wait_for_lock(db_dsn, application_name, timeout_seconds=5.0):
                 return
             time.sleep(0.01)
     raise AssertionError(f"{application_name} did not block on a lock")
+
+
+def _wake_task(client, queue, task_id):
+    row = client.conn.execute(
+        """
+        select run_id, previous_state
+          from absurd.wake_task(%s, %s)
+        """,
+        (queue, task_id),
+    ).fetchone()
+    assert row is not None
+    return row
 
 
 def _create_running_task(db_dsn, queue):
@@ -66,8 +73,8 @@ def _terminal_transition(conn, operation, queue, task_id, run_id):
         conn.execute("select absurd.cancel_task(%s, %s)", (queue, task_id))
 
 
-def test_interrupting_event_wait_removes_obsolete_wait_registration(client):
-    queue = "interrupt_wait_cleanup"
+def test_wake_task_requeues_sleeping_event_wait_and_cleans_registration(client):
+    queue = "wake_sleeping_wait"
     client.create_queue(queue)
 
     spawned = client.spawn_task(queue, "waiting-task", {"value": 1})
@@ -81,8 +88,11 @@ def test_interrupting_event_wait_removes_obsolete_wait_registration(client):
     )
     assert suspended["should_suspend"] is True
 
-    _request_interrupt(client, queue, spawned.task_id)
+    run_id, previous_state = _wake_task(client, queue, spawned.task_id)
 
+    assert run_id == claimed["run_id"]
+    assert previous_state == "sleeping"
+    assert client.get_run(queue, run_id)["state"] == "pending"
     wait_count = client.conn.execute(
         sql.SQL("select count(*) from absurd.{waits} where task_id = %s").format(
             waits=client.get_table("w", queue)
@@ -90,47 +100,75 @@ def test_interrupting_event_wait_removes_obsolete_wait_registration(client):
         (spawned.task_id,),
     ).fetchone()[0]
     assert wait_count == 0
-
-    run = client.get_run(queue, claimed["run_id"])
-    assert run is not None
-    assert run["state"] == "pending"
-
-    checkpoint = client.get_checkpoint(queue, spawned.task_id, INTERRUPT_CHECKPOINT)
-    assert checkpoint is not None
-    assert checkpoint["state"] is True
-
-
-def test_repeated_interruption_creates_one_replayable_request(client):
-    queue = "interrupt_repeated"
-    client.create_queue(queue)
-
-    spawned = client.spawn_task(queue, "interruptible-task", {"value": 1})
-    claimed = client.claim_tasks(queue)[0]
-    client.await_event(
-        queue,
-        spawned.task_id,
-        claimed["run_id"],
-        "wait-step",
-        "some-event",
-    )
-
-    _request_interrupt(client, queue, spawned.task_id)
-    _request_interrupt(client, queue, spawned.task_id)
-
-    checkpoint = client.get_checkpoint(queue, spawned.task_id, INTERRUPT_CHECKPOINT)
-    assert checkpoint is not None
-    assert checkpoint["state"] is True
-
     replay = client.claim_tasks(queue, worker="replay-worker")
     assert [row["run_id"] for row in replay] == [claimed["run_id"]]
+
+
+def test_repeated_wake_is_idempotent_and_does_not_create_a_run(client):
+    queue = "wake_repeated"
+    client.create_queue(queue)
+    spawned = client.spawn_task(queue, "wake-me", {"value": 1})
+
+    first_run_id, first_state = _wake_task(client, queue, spawned.task_id)
+    second_run_id, second_state = _wake_task(client, queue, spawned.task_id)
+
+    assert first_run_id == second_run_id == spawned.run_id
+    assert first_state == second_state == "pending"
+    claimed = client.claim_tasks(queue, worker="replay-worker")
+    assert [row["run_id"] for row in claimed] == [spawned.run_id]
     assert client.claim_tasks(queue, worker="other-worker") == []
 
 
-@pytest.mark.parametrize("terminal_state", ["completed", "failed", "cancelled"])
-def test_interruption_is_a_no_op_for_terminal_tasks(client, terminal_state):
-    queue = f"interrupt_terminal_{terminal_state}"
+def test_wake_task_reports_missing_task_like_other_task_operations(client):
+    queue = "wake_missing"
     client.create_queue(queue)
 
+    with pytest.raises(psycopg.errors.RaiseException, match="Task .* not found"):
+        _wake_task(client, queue, uuid.uuid4())
+
+
+def test_wake_task_makes_delayed_pending_run_claimable(client):
+    queue = "wake_delayed_pending"
+    client.create_queue(queue)
+    spawned = client.spawn_task(queue, "retrying-task", {"value": 1})
+    delayed_until = datetime.now(timezone.utc) + timedelta(hours=1)
+    client.conn.execute(
+        sql.SQL("update absurd.{runs} set available_at = %s where run_id = %s").format(
+            runs=client.get_table("r", queue)
+        ),
+        (delayed_until, spawned.run_id),
+    )
+
+    assert client.claim_tasks(queue, worker="early-worker") == []
+    run_id, previous_state = _wake_task(client, queue, spawned.task_id)
+
+    assert previous_state == "pending"
+    assert run_id == spawned.run_id
+    replay = client.claim_tasks(queue, worker="replay-worker")
+    assert [row["run_id"] for row in replay] == [run_id]
+
+
+def test_wake_task_keeps_a_running_claim_unchanged(client):
+    queue = "wake_running"
+    client.create_queue(queue)
+    spawned = client.spawn_task(queue, "running-task", {"value": 1})
+    claimed = client.claim_tasks(queue)[0]
+
+    run_id, previous_state = _wake_task(client, queue, spawned.task_id)
+    run = client.get_run(queue, claimed["run_id"])
+    task = client.get_task(queue, spawned.task_id)
+
+    assert run_id == claimed["run_id"]
+    assert previous_state == "running"
+    assert run["state"] == "running"
+    assert run["claimed_by"] == "worker"
+    assert task["state"] == "running"
+
+
+@pytest.mark.parametrize("terminal_state", ["completed", "failed", "cancelled"])
+def test_wake_task_is_a_no_op_for_terminal_tasks(client, terminal_state):
+    queue = f"wake_terminal_{terminal_state}"
+    client.create_queue(queue)
     options = {"max_attempts": 1} if terminal_state == "failed" else None
     spawned = client.spawn_task(queue, "terminal-task", {"value": 1}, options)
     claimed = client.claim_tasks(queue)[0]
@@ -142,41 +180,62 @@ def test_interruption_is_a_no_op_for_terminal_tasks(client, terminal_state):
     else:
         client.cancel_task(queue, spawned.task_id)
 
-    _request_interrupt(client, queue, spawned.task_id)
+    run_id, previous_state = _wake_task(client, queue, spawned.task_id)
 
-    task = client.get_task(queue, spawned.task_id)
-    assert task is not None
-    assert task["state"] == terminal_state
-    assert client.get_checkpoint(queue, spawned.task_id, INTERRUPT_CHECKPOINT) is None
+    assert run_id == claimed["run_id"]
+    assert previous_state == terminal_state
+    assert client.get_task(queue, spawned.task_id)["state"] == terminal_state
+    assert client.get_runs(queue, spawned.task_id)[-1]["state"] == terminal_state
 
 
-def test_interruption_wakes_a_partitioned_queue_task(client):
-    queue = "interrupt_partitioned"
-    client.create_queue(queue, storage_mode="partitioned")
-
-    spawned = client.spawn_task(queue, "partitioned-task", {"value": 1})
+@pytest.mark.parametrize("storage_mode", ["unpartitioned", "partitioned"])
+def test_wake_task_supports_both_queue_storage_modes(client, storage_mode):
+    queue = f"wake_storage_{storage_mode}"
+    client.create_queue(queue, storage_mode=storage_mode)
+    spawned = client.spawn_task(queue, "waiting-task", {"value": 1})
     claimed = client.claim_tasks(queue)[0]
-    suspended = client.await_event(
+    client.await_event(
         queue,
         spawned.task_id,
         claimed["run_id"],
         "wait-step",
-        "partitioned-event",
+        "some-event",
     )
-    assert suspended["should_suspend"] is True
 
-    _request_interrupt(client, queue, spawned.task_id)
+    run_id, previous_state = _wake_task(client, queue, spawned.task_id)
 
-    checkpoint = client.get_checkpoint(queue, spawned.task_id, INTERRUPT_CHECKPOINT)
-    assert checkpoint is not None
-    assert checkpoint["state"] is True
-
-    replay = client.claim_tasks(queue, worker="replay-worker")
-    assert [row["run_id"] for row in replay] == [claimed["run_id"]]
+    assert run_id == claimed["run_id"]
+    assert previous_state == "sleeping"
+    assert client.claim_tasks(queue, worker="replay-worker")[0]["run_id"] == run_id
 
 
-def test_event_emission_racing_interruption_cannot_leave_the_task_asleep(db_dsn):
-    queue = "interrupt_event_race"
+def test_wake_task_preserves_payload_already_delivered_to_pending_run(client):
+    queue = "wake_preserve_payload"
+    event_name = "some-event"
+    client.create_queue(queue)
+    spawned = client.spawn_task(queue, "waiting-task", {"value": 1})
+    claimed = client.claim_tasks(queue)[0]
+    client.await_event(
+        queue,
+        spawned.task_id,
+        claimed["run_id"],
+        "wait-step",
+        event_name,
+    )
+    client.emit_event(queue, event_name, {"value": 42})
+    before = client.get_run(queue, claimed["run_id"])
+    assert before["state"] == "pending"
+    assert before["event_payload"] == {"value": 42}
+
+    _wake_task(client, queue, spawned.task_id)
+
+    after = client.get_run(queue, claimed["run_id"])
+    assert after["state"] == "pending"
+    assert after["event_payload"] == {"value": 42}
+
+
+def test_event_emission_racing_wake_cannot_leave_task_asleep(db_dsn):
+    queue = "wake_event_race"
     event_name = "wake-event"
     results = {}
     threads = []
@@ -196,14 +255,14 @@ def test_event_emission_racing_interruption_cannot_leave_the_task_asleep(db_dsn)
                 "select run_id from absurd.claim_task(%s, %s, %s, %s)",
                 (queue, "worker", 60, 1),
             ).fetchone()
-            should_suspend = setup.execute(
+            suspended = setup.execute(
                 """
                 select should_suspend
                   from absurd.await_event(%s, %s, %s, %s, %s)
                 """,
                 (queue, task_id, run_id, "wait-step", event_name),
             ).fetchone()[0]
-            assert should_suspend is True
+            assert suspended is True
 
         lock_conn = psycopg.connect(db_dsn)
         lock_conn.execute(
@@ -224,12 +283,12 @@ def test_event_emission_racing_interruption_cannot_leave_the_task_asleep(db_dsn)
 
         operations = [
             (
-                "absurd-interrupt-event-race",
-                "select absurd.request_task_interrupt(%s, %s)",
+                "absurd-wake-event-race",
+                "select absurd.wake_task(%s, %s)",
                 (queue, task_id),
             ),
             (
-                "absurd-emit-interrupt-race",
+                "absurd-emit-wake-race",
                 "select absurd.emit_event(%s, %s, %s)",
                 (queue, event_name, Jsonb({"value": 42})),
             ),
@@ -261,13 +320,6 @@ def test_event_emission_racing_interruption_cannot_leave_the_task_asleep(db_dsn)
                 "select run_id from absurd.claim_task(%s, %s, %s, %s)",
                 (queue, "replay-worker", 60, 1),
             ).fetchone()[0]
-            interrupt_state = check.execute(
-                """
-                select state
-                  from absurd.get_task_checkpoint_state(%s, %s, %s)
-                """,
-                (queue, task_id, INTERRUPT_CHECKPOINT),
-            ).fetchone()[0]
             wait_count = check.execute(
                 sql.SQL(
                     "select count(*) from absurd.{waits} where task_id = %s"
@@ -277,7 +329,6 @@ def test_event_emission_racing_interruption_cannot_leave_the_task_asleep(db_dsn)
 
         assert task_state == "pending"
         assert replay_run_id == run_id
-        assert interrupt_state is True
         assert wait_count == 0
     finally:
         if lock_conn is not None:
@@ -293,13 +344,13 @@ def test_event_emission_racing_interruption_cannot_leave_the_task_asleep(db_dsn)
     ("operation", "terminal_state"),
     [("complete", "completed"), ("cancel", "cancelled")],
 )
-def test_terminal_transition_winning_race_makes_interruption_a_no_op(
+def test_terminal_transition_winning_race_makes_wake_a_no_op(
     db_dsn, operation, terminal_state
 ):
-    queue = f"interrupt_{operation}_wins"
+    queue = f"wake_{operation}_wins"
     task_id, run_id = _create_running_task(db_dsn, queue)
-    interrupt_done = threading.Event()
-    interrupt_error = []
+    wake_done = threading.Event()
+    wake_error = []
     lock_conn = None
     thread = None
 
@@ -312,46 +363,37 @@ def test_terminal_transition_winning_race_makes_interruption_a_no_op(
             (run_id,),
         )
 
-        def interrupt_worker():
+        def wake_worker():
             try:
                 with psycopg.connect(db_dsn, autocommit=True) as conn:
-                    _set_application_name(conn, f"absurd-interrupt-{operation}-wins")
+                    _set_application_name(conn, f"absurd-wake-{operation}-wins")
                     conn.execute("set statement_timeout = '5s'")
-                    conn.execute(
-                        "select absurd.request_task_interrupt(%s, %s)",
-                        (queue, task_id),
-                    )
+                    conn.execute("select absurd.wake_task(%s, %s)", (queue, task_id))
             except psycopg.Error as exc:  # pragma: no cover - surfaced below
-                interrupt_error.append(exc)
+                wake_error.append(exc)
             finally:
-                interrupt_done.set()
+                wake_done.set()
 
-        thread = threading.Thread(target=interrupt_worker, daemon=True)
+        thread = threading.Thread(target=wake_worker, daemon=True)
         thread.start()
-        _wait_for_lock(db_dsn, f"absurd-interrupt-{operation}-wins")
+        _wait_for_lock(db_dsn, f"absurd-wake-{operation}-wins")
 
         _terminal_transition(lock_conn, operation, queue, task_id, run_id)
         lock_conn.commit()
         lock_conn.close()
         lock_conn = None
 
-        assert interrupt_done.wait(5)
+        assert wake_done.wait(5)
         thread.join(timeout=1)
-        if interrupt_error:
-            raise interrupt_error[0]
+        if wake_error:
+            raise wake_error[0]
 
         with psycopg.connect(db_dsn, autocommit=True) as check:
             state = check.execute(
                 "select state from absurd.get_task_result(%s, %s)",
                 (queue, task_id),
             ).fetchone()[0]
-            checkpoint = check.execute(
-                "select state from absurd.get_task_checkpoint_state(%s, %s, %s)",
-                (queue, task_id, INTERRUPT_CHECKPOINT),
-            ).fetchone()
-
         assert state == terminal_state
-        assert checkpoint is None
     finally:
         if lock_conn is not None:
             lock_conn.rollback()
@@ -366,10 +408,10 @@ def test_terminal_transition_winning_race_makes_interruption_a_no_op(
     ("operation", "terminal_state"),
     [("complete", "completed"), ("cancel", "cancelled")],
 )
-def test_interruption_winning_race_is_preserved_by_terminal_transition(
+def test_wake_winning_race_allows_terminal_transition_to_finish(
     db_dsn, operation, terminal_state
 ):
-    queue = f"interrupt_wins_{operation}"
+    queue = f"wake_wins_{operation}"
     task_id, run_id = _create_running_task(db_dsn, queue)
     terminal_done = threading.Event()
     terminal_error = []
@@ -388,7 +430,7 @@ def test_interruption_winning_race_is_preserved_by_terminal_transition(
         def terminal_worker():
             try:
                 with psycopg.connect(db_dsn, autocommit=True) as conn:
-                    _set_application_name(conn, f"absurd-{operation}-interrupt-wins")
+                    _set_application_name(conn, f"absurd-{operation}-wake-wins")
                     conn.execute("set statement_timeout = '5s'")
                     _terminal_transition(conn, operation, queue, task_id, run_id)
             except psycopg.Error as exc:  # pragma: no cover - surfaced below
@@ -398,12 +440,13 @@ def test_interruption_winning_race_is_preserved_by_terminal_transition(
 
         thread = threading.Thread(target=terminal_worker, daemon=True)
         thread.start()
-        _wait_for_lock(db_dsn, f"absurd-{operation}-interrupt-wins")
+        _wait_for_lock(db_dsn, f"absurd-{operation}-wake-wins")
 
-        lock_conn.execute(
-            "select absurd.request_task_interrupt(%s, %s)",
+        wake_row = lock_conn.execute(
+            "select run_id, previous_state from absurd.wake_task(%s, %s)",
             (queue, task_id),
-        )
+        ).fetchone()
+        assert wake_row == (run_id, "running")
         lock_conn.commit()
         lock_conn.close()
         lock_conn = None
@@ -418,13 +461,7 @@ def test_interruption_winning_race_is_preserved_by_terminal_transition(
                 "select state from absurd.get_task_result(%s, %s)",
                 (queue, task_id),
             ).fetchone()[0]
-            checkpoint = check.execute(
-                "select state from absurd.get_task_checkpoint_state(%s, %s, %s)",
-                (queue, task_id, INTERRUPT_CHECKPOINT),
-            ).fetchone()
-
         assert state == terminal_state
-        assert checkpoint == (True,)
     finally:
         if lock_conn is not None:
             lock_conn.rollback()

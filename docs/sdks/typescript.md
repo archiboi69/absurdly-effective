@@ -124,29 +124,24 @@ defaults).
 | `attempt` | `number` | Attempt number |
 | `created` | `boolean` | `false` if an existing task was returned (idempotency) |
 
-## Dispatching Effect Workflows
+## Dispatching work to another SDK
 
-The promise SDK does not depend on Effect, but it can dispatch work to an
-[`absurd-effect`](./effect.md) worker without duplicating Effect's execution-ID
-protocol:
+The promise SDK stays generic. If another system gives you a stable execution
+or correlation ID, pass it through the ordinary `idempotencyKey` option:
 
 ```typescript
-const spawned = await app.spawnEffectWorkflow(
+const executionId = 'execution-id-from-the-workflow-system';
+const spawned = await app.spawn(
   'ShippingBroker/Finance/IssueSalesInvoice',
   { attemptId: 123 },
-  '123',
+  { idempotencyKey: executionId },
 );
 
-await saveExecutionId(spawned.executionID);
+await saveExecutionId(executionId);
 ```
 
-`spawnEffectWorkflow` derives Effect's deterministic execution ID, stores it as the
-Absurd idempotency key, and applies a bounded five-attempt fixed one-second
-retry policy for infrastructure failures. Business retries remain inside the
-Effect workflow around its Activities.
-
-Persist `executionID` for Effect's `poll`, `resume`, and `interrupt` operations.
-The returned `taskID` is the backing Absurd UUID used for operational tooling.
+The value is opaque to Absurd. Reusing it returns the existing task, regardless
+of which SDK or worker originally produced it.
 
 ## Task Results
 

@@ -16,7 +16,7 @@ edge, and provide one engine layer to the worker process:
 
 ```typescript
 import { PgClient } from "@effect/sql-pg";
-import { AbsurdWorkflowEngine } from "absurd-effect";
+import { AbsurdWorkflowEngine } from "absurd-effect/unstable/workflow";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { Workflow } from "effect/unstable/workflow";
 
@@ -155,12 +155,19 @@ means the backing Absurd task failed at the infrastructure or protocol level.
 
 ## Producing work outside Effect
 
-Use `absurd-sdk`'s `spawnEffectWorkflow` when promise-based TypeScript code produces
-work for an Effect worker. It derives the compatible execution ID and applies
-the bounded infrastructure retry policy.
+The promise-based TypeScript and Python SDKs remain generic. A producer that
+already has an Effect execution ID passes it to their ordinary `spawn` API as
+the Absurd idempotency key:
 
-Application code should persist the returned execution ID, not the backing task
-UUID, and should never reproduce Effect's execution-ID hash itself.
+```typescript
+const executionId = "execution-id-from-the-workflow-system";
+await app.spawn("Finance/IssueInvoice", payload, {
+  idempotencyKey: executionId,
+});
+```
+
+Absurd treats the value as opaque and returns the existing task when the key is
+reused. Persist the execution ID, not the backing task UUID.
 
 ## Retry ownership
 

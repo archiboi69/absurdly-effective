@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { Workflow } from "effect/unstable/workflow";
 import { Absurd } from "absurd-sdk";
-import { AbsurdWorkflowEngine } from "../src/index.ts";
+import { AbsurdWorkflowEngine } from "../src/unstable/workflow/index.ts";
 import { pool, randomName } from "./setup.ts";
 import { assert, beforeAll, describe, expect, it } from "@effect/vitest";
 

@@ -14,7 +14,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { Activity, DurableDeferred, Workflow, WorkflowEngine } from "effect/unstable/workflow";
 import { beforeAll, describe, expect, it } from "@effect/vitest";
 import { pool, randomName } from "./setup.ts";
-import { AbsurdWorkflowEngine, type QueueOptions } from "../src/index.ts";
+import { AbsurdWorkflowEngine, type QueueOptions } from "../src/unstable/workflow/index.ts";
 
 // This suite exercises the engine's persistence boundaries directly: schemas
 // with transformations, raw SQL row shapes, and deliberately broken
