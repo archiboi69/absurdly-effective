@@ -13,7 +13,7 @@ import {
   encodeStructuralExit,
   exitWithNullishValues,
   workflowPersistenceCodecs,
-} from "../src/effect-workflow.ts";
+} from "../src/persistence.ts";
 // These laws exercise the erased-`Workflow.Any` persistence boundary itself:
 // unknown-typed codecs and structural assertions ARE the subject under test,
 // mirroring the adapter's own lint exclusions for that seam.

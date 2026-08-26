@@ -34,11 +34,14 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { Activity, DurableDeferred, Workflow, WorkflowEngine } from "effect/unstable/workflow";
 import * as os from "os";
 
+import { absurdWorkflowStore, type ClaimedRow, type TaskSnapshotRow } from "./store.ts";
 import {
-  absurdWorkflowStore,
-  type ClaimedRow,
-  type TaskSnapshotRow,
-} from "./effect-workflow-store.ts";
+  decodeStructuralExit,
+  encodeStructuralExit,
+  exitWithNullishValues,
+  type WorkflowPersistenceCodecs,
+  workflowPersistenceCodecs,
+} from "./persistence.ts";
 
 // The upstream `WorkflowEngine.Encoded` contract mandates `object`/`unknown`
 // at its persistence seam (payloads, checkpoints, exits), and Effect's own
@@ -82,7 +85,7 @@ interface ActiveClaim {
  * claimed queue/task/run triple without rereading mutable ownership columns.
  */
 class ClaimContext extends Context.Service<ClaimContext, ActiveClaim>()(
-  "absurd-effect/effect-workflow/ClaimContext",
+  "absurd-effect/engine/ClaimContext",
 ) {}
 
 const MAX_QUEUE_NAME_LENGTH = 57;
@@ -173,7 +176,7 @@ class ExecutionStatusService extends Context.Service<
       executionId: string,
     ) => Effect.Effect<AbsurdWorkflowExecutionStatus<unknown, unknown>>;
   }
->()("absurd-effect/effect-workflow/ExecutionStatusService") {}
+>()("absurd-effect/engine/ExecutionStatusService") {}
 
 interface Registration {
   readonly workflow: Workflow.Any;
@@ -191,67 +194,6 @@ interface Registration {
     WorkflowEngine.WorkflowInstance | WorkflowEngine.WorkflowEngine
   >;
 }
-
-// ---------------------------------------------------------------------------
-// Persistence codecs
-//
-// `WorkflowEngine.makeUnsafe` fixes the value domain at every seam
-// (`unstable/workflow/WorkflowEngine.ts`): payloads and registered-handler
-// results arrive on the Type side, while activity exits (`executeEncoded`
-// pre-encodes) and deferred completions (`deferred.exitSchema` pre-encodes)
-// arrive already encoded — `makeUnsafe` applies the Type-side decode itself.
-// The adapter therefore keeps three explicit persistence paths:
-//
-// 1. Workflow payload/result: Type side ↔ canonical JSON through codecs
-//    derived from the workflow's own schemas (`toCodecJson`), so schema
-//    transformations survive storage. Codec failures defect — invalid
-//    persisted data must never silently degrade into raw values.
-// 2. Activity checkpoints: preserve the encoded success/error values exactly,
-//    validating only the surrounding Exit structure.
-// 3. Deferred completions: same structural contract as activities.
-//
-// Paths 2 and 3 share one envelope codec with service-free slots
-// (`Unknown`/`Defect`), which serializes defects and reconstructs `Error`
-// instances without touching encoded payloads.
-// ---------------------------------------------------------------------------
-
-/** Canonical JSON codec pair for one workflow's Type-side persistence. */
-export interface WorkflowPersistenceCodecs {
-  readonly payload: ReturnType<typeof Schema.toCodecJson>;
-  readonly result: ReturnType<typeof Schema.toCodecJson>;
-}
-
-export const workflowPersistenceCodecs = (workflow: Workflow.Any): WorkflowPersistenceCodecs => ({
-  payload: Schema.toCodecJson(workflow.payloadSchema),
-  result: Schema.toCodecJson(
-    Workflow.Result({
-      success: workflow.successSchema,
-      error: workflow.errorSchema,
-    }),
-  ),
-});
-
-/**
- * Structural Exit envelope for the already-encoded boundaries (activities and
- * deferreds). `Unknown` slots pass encoded values through untouched; `Defect`
-// serializes defects on write and reconstructs Error instances on read.
- */
-export const structuralExitCodec = Schema.toCodecJson(
-  Schema.Exit(Schema.Unknown, Schema.Unknown, Schema.Defect()),
-);
-
-/** Normalizes nullish top-level success values, mirroring makeUnsafe's toJsonExit. */
-export const exitWithNullishValues = (
-  exit: Exit.Exit<unknown, unknown>,
-): Exit.Exit<unknown, unknown> => Exit.map(exit, (value) => value ?? null);
-
-export type StructuralExitEncoded = Schema.Codec.Encoded<typeof structuralExitCodec>;
-
-export const encodeStructuralExit = (exit: Exit.Exit<unknown, unknown>): StructuralExitEncoded =>
-  exit.pipe(exitWithNullishValues, Schema.encodeSync(structuralExitCodec));
-
-export const decodeStructuralExit = (stored: unknown): Exit.Exit<unknown, unknown> =>
-  Schema.decodeUnknownSync(structuralExitCodec)(stored);
 
 const validateQueueName = (queueName: string): string => {
   if (queueName === "" || !/^[A-Za-z0-9_]+$/.test(queueName)) {
