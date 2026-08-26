@@ -53,9 +53,75 @@ The layer provides Effect's ordinary `WorkflowEngine.WorkflowEngine`. Workflow
 definitions, handler registration, Activities, durable clocks, deferreds,
 typed failures, and interruption remain Effect-native.
 
+## Mental Model
+
+A workflow definition is a reusable program with a stable name:
+
+```typescript
+const IssueInvoice = Workflow.make('Finance/IssueInvoice', {
+  // ...
+});
+```
+
+One definition can have many logical executions. Effect derives each stable
+execution ID from the workflow name and the business idempotency key:
+
+```text
+Finance/IssueInvoice + invoice-123 -> execution A
+Finance/IssueInvoice + invoice-456 -> execution B
+```
+
+Repeatedly executing `invoice-123` resolves to execution A. It does not create
+another logical execution.
+
+| Identity | Represents | Lifetime |
+| --- | --- | --- |
+| Workflow name | The reusable workflow definition | Constant |
+| Execution ID | One logical invocation/idempotency key | Stable across its entire execution |
+| Task ID | The physical Absurd task backing the execution | May be replaced during repair or migration |
+| Run ID | One claim or infrastructure attempt | Changes on retry or reclaim |
+
+Effect's `poll`, `resume`, and `interrupt` operations use the execution ID.
+Absurd task and run UUIDs remain operational storage identifiers. Keeping task
+identity separate allows physical storage to be repaired or migrated without
+changing application identity. Run identity changes so stale workers can be
+fenced from committing.
+
+The execution ID is stored as Absurd's idempotency key, providing the stable
+mapping to the current backing task.
+
+## Execute Now or Start and Return
+
+`Workflow.execute` is lazy: neither form does anything until its Effect is
+yielded or run. The default form starts or attaches to the execution and waits
+for its typed business result:
+
+```typescript
+const invoice = yield* FinanceIssueInvoice.execute(payload);
+// Effect<Invoice, IssueInvoiceError>
+```
+
+Effect's upstream `{ discard: true }` option means “discard the result at this
+call site.” It starts or attaches to the durable execution and returns its ID
+without waiting for completion:
+
+```typescript
+const executionId = yield* FinanceIssueInvoice.execute(payload, {
+  discard: true,
+});
+// Effect<string, never>
+```
+
+`discard` does not delete, cancel, or make the result ephemeral. The workflow
+continues durably, and the Absurd engine returns only after its backing
+execution has been accepted and persisted. This is useful for HTTP requests,
+dispatchers, and parent processes that cannot remain attached to work lasting
+minutes, days, or years.
+
 ## Ensure Then Poll
 
-Use Effect's native idempotent execution pattern when reconciling work:
+Because execution identity and task creation are idempotent, the discard form
+also provides an ensure operation:
 
 ```typescript
 const executionId = yield* FinanceIssueInvoice.execute(payload, {
@@ -64,8 +130,9 @@ const executionId = yield* FinanceIssueInvoice.execute(payload, {
 const result = yield* FinanceIssueInvoice.poll(executionId);
 ```
 
-Persist `executionId`, not Absurd's backing task or run UUID. Effect's `poll`,
-`resume`, and `interrupt` operations all use the execution ID.
+If the backing task already exists, this returns the existing execution ID. If
+the task is missing, the engine recreates it without creating another logical
+execution. Reconciliation loops can therefore repair first and inspect second.
 
 ## Operational Status
 
@@ -87,9 +154,15 @@ infrastructure or protocol level.
 
 ## Producing Work Outside Effect
 
-Promise-based TypeScript producers use `absurd-sdk`'s `spawnWorkflow`; Python
-producers use the equivalent `Absurd.spawnWorkflow`. Both derive Effect's
+Promise-based TypeScript producers use `absurd-sdk`'s `spawnEffectWorkflow`;
+Python producers use the equivalent `Absurd.spawn_effect_workflow`. Both derive Effect's
 execution ID and apply the same bounded infrastructure retry policy.
+
+Application code persists the execution ID and should never reproduce Effect's
+execution-ID hash itself. The backing task UUID is reserved for Absurd
+operational tooling.
+
+## Retry Ownership
 
 Typed workflow failures are terminal outcomes. Business retries belong around
 Activities, using `DurableClock` when delays must survive worker restarts.

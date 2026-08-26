@@ -22,19 +22,19 @@ def test_effect_workflow_execution_id_hashes_utf8_and_truncates_to_128_bits() ->
     assert execution_id == "444a0466cfbeccfe2cdc7953618be84b"
 
 
-def test_spawn_workflow_sets_effect_defaults_and_is_idempotent(
+def test_spawn_effect_workflow_sets_effect_defaults_and_is_idempotent(
     conn, queue_name
 ) -> None:
     queue = queue_name("effect_workflow")
     client = Absurd(conn, queue_name=queue, default_max_attempts=9)
     client.create_queue()
 
-    first = client.spawnWorkflow(
+    first = client.spawn_effect_workflow(
         "ShippingBroker/Finance/IssueSalesInvoice",
         {"attemptId": 123},
         "invoice-123",
     )
-    second = client.spawnWorkflow(
+    second = client.spawn_effect_workflow(
         "ShippingBroker/Finance/IssueSalesInvoice",
         {"attemptId": 456},
         "invoice-123",
@@ -65,7 +65,7 @@ def test_spawn_workflow_sets_effect_defaults_and_is_idempotent(
     )
 
 
-def test_async_spawn_workflow_sets_effect_defaults_and_returns_ids(
+def test_async_spawn_effect_workflow_sets_effect_defaults_and_returns_ids(
     db_dsn, queue_name
 ) -> None:
     queue = queue_name("async_effect_workflow")
@@ -76,7 +76,9 @@ def test_async_spawn_workflow_sets_effect_defaults_and_returns_ids(
     async def run():
         client = AsyncAbsurd(db_dsn, queue_name=queue, default_max_attempts=9)
         try:
-            return await client.spawnWorkflow("workflow", {"value": 42}, "order-42")
+            return await client.spawn_effect_workflow(
+                "workflow", {"value": 42}, "order-42"
+            )
         finally:
             await client.close()
 

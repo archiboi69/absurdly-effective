@@ -25,7 +25,7 @@ uv add absurd-sdk
 ## Dispatching an Effect workflow
 
 When Python produces work for an Effect `WorkflowEngine`, use
-`spawnWorkflow`. It derives Effect's execution ID from the workflow name and
+`spawn_effect_workflow`. It derives Effect's execution ID from the workflow name and
 your business idempotency key, stores it as Absurd's idempotency key, and uses
 Effect's bounded fixed one-second infrastructure retry strategy. Persist the
 returned execution ID for native `Workflow.poll`, `Workflow.resume`, and
@@ -36,7 +36,7 @@ retries belong inside the Effect workflow around its `Activity` operations.
 from absurd_sdk import Absurd
 
 workflow_name = "ShippingBroker/Finance/IssueSalesInvoice"
-spawned = Absurd().spawnWorkflow(
+spawned = Absurd().spawn_effect_workflow(
     workflow_name,
     {"attemptId": 123},
     "123",

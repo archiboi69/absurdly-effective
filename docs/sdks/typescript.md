@@ -131,7 +131,7 @@ The promise SDK does not depend on Effect, but it can dispatch work to an
 protocol:
 
 ```typescript
-const spawned = await app.spawnWorkflow(
+const spawned = await app.spawnEffectWorkflow(
   'ShippingBroker/Finance/IssueSalesInvoice',
   { attemptId: 123 },
   '123',
@@ -140,7 +140,7 @@ const spawned = await app.spawnWorkflow(
 await saveExecutionId(spawned.executionID);
 ```
 
-`spawnWorkflow` derives Effect's deterministic execution ID, stores it as the
+`spawnEffectWorkflow` derives Effect's deterministic execution ID, stores it as the
 Absurd idempotency key, and applies a bounded five-attempt fixed one-second
 retry policy for infrastructure failures. Business retries remain inside the
 Effect workflow around its Activities.

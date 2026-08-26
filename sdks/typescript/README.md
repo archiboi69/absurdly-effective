@@ -42,11 +42,11 @@ the full CLI reference, including
 
 This package remains a promise-based TypeScript SDK and does not depend on
 Effect. When it produces work for an Effect workflow worker, use
-`spawnWorkflow`. It derives Effect's execution ID, applies the workflow
+`spawnEffectWorkflow`. It derives Effect's execution ID, applies the workflow
 infrastructure retry defaults, and returns both identities:
 
 ```typescript
-const spawned = await app.spawnWorkflow(
+const spawned = await app.spawnEffectWorkflow(
   "ShippingBroker/Finance/IssueSalesInvoice",
   { attemptId: 123 },
   "123",

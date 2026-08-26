@@ -1538,7 +1538,7 @@ class Absurd(_AbsurdBase):
             "attempt": row["attempt"],
         }
 
-    def spawnWorkflow(
+    def spawn_effect_workflow(
         self,
         workflow_name: str,
         payload: Any,
@@ -2095,7 +2095,7 @@ class AsyncAbsurd(_AbsurdBase):
             "attempt": row["attempt"],
         }
 
-    async def spawnWorkflow(
+    async def spawn_effect_workflow(
         self,
         workflow_name: str,
         payload: Any,

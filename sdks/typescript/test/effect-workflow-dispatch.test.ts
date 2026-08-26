@@ -25,12 +25,12 @@ describe("Effect workflow dispatch", () => {
   });
 
   test("sets Effect infrastructure defaults and dispatches idempotently", async () => {
-    const first = await absurd.spawnWorkflow(
+    const first = await absurd.spawnEffectWorkflow(
       "ShippingBroker/Finance/IssueSalesInvoice",
       { attemptId: 123 },
       "invoice-123",
     );
-    const second = await absurd.spawnWorkflow(
+    const second = await absurd.spawnEffectWorkflow(
       "ShippingBroker/Finance/IssueSalesInvoice",
       { attemptId: 456 },
       "invoice-123",

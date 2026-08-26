@@ -937,7 +937,7 @@ export class Absurd {
    * execution ID and stored as Absurd's task idempotency key. Infrastructure
    * retries are bounded; business retries remain owned by workflow Activities.
    */
-  async spawnWorkflow<P = JsonValue>(
+  async spawnEffectWorkflow<P = JsonValue>(
     workflowName: string,
     payload: P,
     businessIdempotencyKey: string,
