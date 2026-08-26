@@ -1,9 +1,9 @@
 # Absurd SDK for Effect
 
 `absurd-effect` provides typed, durable background tasks for Effect applications,
-backed by stock [Absurd](https://github.com/earendil-works/absurd) SQL. The
-Promise-based TypeScript SDK is an internal adapter: application code uses
-Schemas, Effects, services, and scoped Layers throughout.
+backed directly by stock [Absurd](https://github.com/earendil-works/absurd) SQL
+through `@effect/sql-pg`. Application code uses Schemas, Effects, services, and
+scoped Layers throughout.
 
 This package is for Absurd **tasks**. It does not introduce a second workflow
 engine or require Effect-specific database migrations. TypeScript and Python
@@ -11,7 +11,7 @@ producers can enqueue the same task names and JSON payloads.
 
 `absurd-effect` mirrors Absurd's release version. For example,
 `absurd-effect@0.5.x` targets the SQL `0.5.x` contract and contains the matching
-TypeScript adapter.
+native PostgreSQL driver.
 
 > **Warning:** Absurd and this SDK are early experiments and should not yet be
 > used in production.

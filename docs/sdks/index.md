@@ -3,7 +3,7 @@
 Absurd currently has first-party SDKs for:
 
 - **[TypeScript](./typescript.md)** (also usable from JavaScript)
-- **[Effect](./effect.md)** (Effect-native tasks backed by the TypeScript SDK)
+- **[Effect](./effect.md)** (Effect-native tasks backed directly by Absurd SQL)
 - **[Python](./python.md)**
 
 Absurd SDKs are intentionally lightweight. Most durable-execution complexity

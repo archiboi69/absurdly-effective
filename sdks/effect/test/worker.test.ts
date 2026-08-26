@@ -26,11 +26,19 @@ describe("Worker", () => {
     const Rebuild = Task.make("rebuild", {
       queue,
       payload: { accountId: Schema.String },
+      cancellation: { maxDuration: "500 millis" },
     });
 
     const program = Effect.gen(function* () {
       const taskId = yield* Rebuild.enqueue({ accountId: "account-1" });
       expect((yield* Rebuild.status(taskId))._tag).toBe("Pending");
+      const result = yield* Effect.promise(() =>
+        pool.query<{ cancellation: { max_duration: number } }>(
+          `SELECT cancellation FROM absurd.t_${queue} WHERE task_id = $1`,
+          [taskId],
+        ),
+      );
+      expect(result.rows[0]?.cancellation).toEqual({ max_duration: 1 });
     }).pipe(Effect.provide(Absurd.layerPool(pool)));
 
     return Effect.gen(function* () {
@@ -124,6 +132,57 @@ describe("Worker", () => {
     return Effect.gen(function* () {
       yield* Effect.promise(() => pool.query("SELECT absurd.create_queue($1)", [queue]));
       yield* Effect.promise(() => pool.query("SELECT absurd.create_queue($1)", [auditQueue]));
+      yield* useWorker;
+    });
+  });
+
+  it.live("fills worker concurrency when claiming one task per poll", () => {
+    const queue = randomName("effect_concurrency");
+    let active = 0;
+    let maximumActive = 0;
+
+    const SlowTask = Task.make("slow-task", {
+      queue,
+      payload: { id: Schema.Int },
+    });
+    const SlowTaskHandler = SlowTask.handler(
+      Effect.fn("SlowTask.handler")(function* () {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        yield* Effect.sleep(Duration.millis(100));
+        active -= 1;
+      }),
+    );
+
+    const useWorker = Effect.gen(function* () {
+      const taskIds = yield* Effect.all([SlowTask.enqueue({ id: 1 }), SlowTask.enqueue({ id: 2 })]);
+      yield* Effect.forEach(
+        taskIds,
+        (taskId) =>
+          SlowTask.status(taskId).pipe(
+            Effect.repeat({
+              schedule: Schedule.spaced(Duration.millis(20)),
+              until: (status) => status._tag === "Completed",
+            }),
+            Effect.timeout(Duration.seconds(10)),
+          ),
+        { concurrency: "unbounded", discard: true },
+      );
+      expect(maximumActive).toBe(2);
+    }).pipe(
+      Effect.provide(
+        Worker.layer({
+          handlers: [SlowTaskHandler],
+          batchSize: 1,
+          concurrency: 2,
+          pollInterval: "10 millis",
+          fatalOnLeaseTimeout: false,
+        }).pipe(Layer.provideMerge(Absurd.layerPool(pool))),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      yield* Effect.promise(() => pool.query("SELECT absurd.create_queue($1)", [queue]));
       yield* useWorker;
     });
   });

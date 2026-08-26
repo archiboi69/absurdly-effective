@@ -1,4 +1,4 @@
-// Node/Testcontainers fixture for the production Absurd adapter tests.
+// Node/Testcontainers fixture for the production Absurd driver tests.
 // oxlint-disable effecttsgo/async-function
 // oxlint-disable effecttsgo/global-console
 // oxlint-disable effecttsgo/global-random

@@ -37,7 +37,7 @@
     "prepare": "vp run build"
   },
   "dependencies": {
-    "absurd-sdk": "workspace:*",
+    "@effect/sql-pg": "4.0.0-rc.108",
     "pg": "^8.13.1"
   },
   "devDependencies": {

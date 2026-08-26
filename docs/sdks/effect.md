@@ -1,11 +1,10 @@
 # Effect SDK
 
-`absurd-effect` provides Effect-native durable tasks backed by stock Absurd SQL.
-The Promise-based TypeScript SDK is contained inside its production Layer and
-does not appear in application code.
+`absurd-effect` provides Effect-native durable tasks backed directly by stock
+Absurd SQL through `@effect/sql-pg`.
 
 The package version mirrors Absurd's release version: `absurd-effect@0.5.x`
-targets the SQL `0.5.x` contract and contains the corresponding adapter.
+targets the SQL `0.5.x` contract and contains the corresponding native driver.
 
 ```bash
 npm install absurd-effect effect

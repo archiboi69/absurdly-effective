@@ -34,6 +34,8 @@ describe("Task with TestTaskStore", () => {
         payload: DatePayload,
         success: DateResult,
         idempotencyKey: ({ key }) => key,
+        maxAttempts: 3,
+        cancellation: { maxDuration: "5 minutes" },
       });
       const DeliverHandler = Deliver.handler(
         Effect.fn("Deliver.handler")(function* ({ key, at }) {
@@ -69,6 +71,8 @@ describe("Task with TestTaskStore", () => {
         expect(entries).toHaveLength(1);
         expect(entries[0]?.name).toBe("deliver");
         expect(entries[0]?.payload).toEqual({ key: "invoice-123", at: "1970-01-01T00:00:00.000Z" });
+        expect(entries[0]?.options.maxAttempts).toBe(3);
+        expect(entries[0]?.options.cancellation).toEqual({ maxDuration: "5 minutes" });
       }).pipe(Effect.provide(TestTaskStore.layer({ handlers: [DeliverHandler] })));
     },
   );

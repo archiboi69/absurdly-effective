@@ -110,8 +110,6 @@ export interface Handler<
   readonly task: {
     readonly name: Name;
     readonly queue: string;
-    readonly maxAttempts: number | undefined;
-    readonly cancellation: Cancellation | undefined;
   };
   readonly execute: (
     payload: unknown,
@@ -126,8 +124,6 @@ export interface AnyHandler {
   readonly task: {
     readonly name: string;
     readonly queue: string;
-    readonly maxAttempts: number | undefined;
-    readonly cancellation: Cancellation | undefined;
   };
   readonly execute: (payload: unknown) => Effect.Effect<unknown, unknown, unknown>;
 }
@@ -220,6 +216,8 @@ export const make = <
     const routedOptions: RoutedEnqueueOptions = {
       ...options,
       queue: config.queue,
+      maxAttempts: options.maxAttempts ?? config.maxAttempts,
+      cancellation: options.cancellation ?? config.cancellation,
       idempotencyKey,
     };
     const taskId = yield* store.enqueue({ name, payload: encoded, options: routedOptions });
@@ -250,8 +248,6 @@ export const make = <
       task: {
         name,
         queue: config.queue,
-        maxAttempts: config.maxAttempts,
-        cancellation: config.cancellation,
       },
       execute: Effect.fn(`${name}.handler`)(function* (payload: unknown) {
         const decoded = yield* Schema.decodeUnknownEffect(payloadCodec)(payload).pipe(
