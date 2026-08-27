@@ -7,7 +7,7 @@ import * as Option from "effect/Option";
 
 import { CurrentTask } from "./CurrentTask.ts";
 import { fromStorage, type BeginStep, StepExecutor } from "./StepExecutor.ts";
-import type { AnyHandler, HandlerRequirements, RoutedEnqueueOptions } from "./Task.ts";
+import type { AnyHandler, HandlerRequirements, RoutedSpawnOptions } from "./Task.ts";
 import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts";
 
 // This adapter deliberately stores encoded JSON-shaped values so the same Task
@@ -21,7 +21,7 @@ export interface Entry {
   readonly id: string;
   readonly name: string;
   readonly payload: unknown;
-  readonly options: RoutedEnqueueOptions;
+  readonly options: RoutedSpawnOptions;
   readonly status: StoredTaskStatus;
 }
 
@@ -29,7 +29,7 @@ interface MutableEntry {
   readonly id: string;
   readonly name: string;
   readonly payload: unknown;
-  readonly options: RoutedEnqueueOptions;
+  readonly options: RoutedSpawnOptions;
   readonly checkpoints: Map<string, unknown>;
   status: StoredTaskStatus;
 }
@@ -117,7 +117,7 @@ const makeLayer = <const Handlers extends ReadonlyArray<AnyHandler>>(
       });
 
       store = TaskStore.of({
-        enqueue: Effect.fn("TestTaskStore.enqueue")(function* (request) {
+        spawn: Effect.fn("TestTaskStore.spawn")(function* (request) {
           const key = request.options.idempotencyKey;
           if (key !== undefined) {
             const existing = byIdempotencyKey.get(

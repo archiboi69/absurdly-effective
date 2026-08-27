@@ -23,59 +23,56 @@ const DateResult = Schema.Struct({
 });
 
 describe("Task with TestTaskStore", () => {
-  it.effect(
-    "uses one schema-first definition for enqueue, handling, idempotency, and status",
-    () => {
-      let observedTaskId = "";
-      let observedHeaders: Schema.JsonObject = {};
+  it.effect("uses one schema-first definition for spawn, handling, idempotency, and status", () => {
+    let observedTaskId = "";
+    let observedHeaders: Schema.JsonObject = {};
 
-      const Deliver = Task.make("deliver", {
-        queue: "deliveries",
-        payload: DatePayload,
-        success: DateResult,
-        idempotencyKey: ({ key }) => key,
-        maxAttempts: 3,
-        cancellation: { maxDuration: "5 minutes" },
-      });
-      const DeliverHandler = Deliver.handler(
-        Effect.fn("Deliver.handler")(function* ({ key, at }) {
-          const current = yield* CurrentTask;
-          observedTaskId = current.id;
-          observedHeaders = current.headers;
-          return { key, at };
-        }),
+    const Deliver = Task.make("deliver", {
+      queue: "deliveries",
+      payload: DatePayload,
+      success: DateResult,
+      idempotencyKey: ({ key }) => key,
+      maxAttempts: 3,
+      cancellation: { maxDuration: "5 minutes" },
+    });
+    const DeliverHandler = Deliver.handler(
+      Effect.fn("Deliver.handler")(function* ({ key, at }) {
+        const current = yield* CurrentTask;
+        observedTaskId = current.id;
+        observedHeaders = current.headers;
+        return { key, at };
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const first = yield* Deliver.spawn(
+        { key: "invoice-123", at: epoch },
+        { headers: { correlationId: "trace-1" } },
       );
+      const duplicate = yield* Deliver.spawn({
+        key: "invoice-123",
+        at: oneSecondAfterEpoch,
+      });
 
-      return Effect.gen(function* () {
-        const first = yield* Deliver.enqueue(
-          { key: "invoice-123", at: epoch },
-          { headers: { correlationId: "trace-1" } },
-        );
-        const duplicate = yield* Deliver.enqueue({
-          key: "invoice-123",
-          at: oneSecondAfterEpoch,
-        });
+      expect(duplicate).toBe(first);
+      expect(observedTaskId).toBe(first);
+      expect(observedHeaders).toEqual({ correlationId: "trace-1" });
 
-        expect(duplicate).toBe(first);
-        expect(observedTaskId).toBe(first);
-        expect(observedHeaders).toEqual({ correlationId: "trace-1" });
+      const restoredTaskId = yield* Schema.decodeEffect(Deliver.idSchema)(first);
+      const status = yield* Deliver.status(restoredTaskId);
+      assert(status._tag === "Completed");
+      expect(status.value.at).toBeInstanceOf(Date);
+      expect(status.value.at.getTime()).toBe(0);
 
-        const restoredTaskId = yield* Schema.decodeEffect(Deliver.idSchema)(first);
-        const status = yield* Deliver.status(restoredTaskId);
-        assert(status._tag === "Completed");
-        expect(status.value.at).toBeInstanceOf(Date);
-        expect(status.value.at.getTime()).toBe(0);
-
-        const store = yield* TestTaskStore;
-        const entries = yield* store.entries;
-        expect(entries).toHaveLength(1);
-        expect(entries[0]?.name).toBe("deliver");
-        expect(entries[0]?.payload).toEqual({ key: "invoice-123", at: "1970-01-01T00:00:00.000Z" });
-        expect(entries[0]?.options.maxAttempts).toBe(3);
-        expect(entries[0]?.options.cancellation).toEqual({ maxDuration: "5 minutes" });
-      }).pipe(Effect.provide(TestTaskStore.layer({ handlers: [DeliverHandler] })));
-    },
-  );
+      const store = yield* TestTaskStore;
+      const entries = yield* store.entries;
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.name).toBe("deliver");
+      expect(entries[0]?.payload).toEqual({ key: "invoice-123", at: "1970-01-01T00:00:00.000Z" });
+      expect(entries[0]?.options.maxAttempts).toBe(3);
+      expect(entries[0]?.options.cancellation).toEqual({ maxDuration: "5 minutes" });
+    }).pipe(Effect.provide(TestTaskStore.layer({ handlers: [DeliverHandler] })));
+  });
 
   it.effect("defaults successful tasks to void", () => {
     const Refresh = Task.make("refresh", {
@@ -89,7 +86,7 @@ describe("Task with TestTaskStore", () => {
     );
 
     return Effect.gen(function* () {
-      const taskId = yield* Refresh.enqueue({ accountId: "account-1" });
+      const taskId = yield* Refresh.spawn({ accountId: "account-1" });
       const status = yield* Refresh.status(taskId);
       assert(status._tag === "Completed");
       expect(status.value).toBeUndefined();
@@ -140,7 +137,7 @@ describe("Task with TestTaskStore", () => {
     );
 
     return Effect.gen(function* () {
-      const taskId = yield* MutateProvider.enqueue({ key: "posting-1" });
+      const taskId = yield* MutateProvider.spawn({ key: "posting-1" });
       expect((yield* MutateProvider.status(taskId))._tag).toBe("Failed");
 
       const store = yield* TestTaskStore;

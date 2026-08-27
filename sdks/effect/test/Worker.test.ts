@@ -30,7 +30,7 @@ describe("Worker", () => {
     });
 
     const program = Effect.gen(function* () {
-      const taskId = yield* Rebuild.enqueue({ accountId: "account-1" });
+      const taskId = yield* Rebuild.spawn({ accountId: "account-1" });
       expect((yield* Rebuild.status(taskId))._tag).toBe("Pending");
       const result = yield* Effect.promise(() =>
         pool.query<{ cancellation: { max_duration: number } }>(
@@ -95,8 +95,8 @@ describe("Worker", () => {
     );
 
     const useWorker = Effect.gen(function* () {
-      const taskId = yield* IssueInvoice.enqueue({ key: "invoice-1", issuedAt: epoch });
-      const auditTaskId = yield* RecordAudit.enqueue({ subject: "invoice-1" });
+      const taskId = yield* IssueInvoice.spawn({ key: "invoice-1", issuedAt: epoch });
+      const auditTaskId = yield* RecordAudit.spawn({ subject: "invoice-1" });
       const status = yield* IssueInvoice.status(taskId).pipe(
         Effect.repeat({
           schedule: Schedule.spaced(Duration.millis(20)),
@@ -155,7 +155,7 @@ describe("Worker", () => {
     );
 
     const useWorker = Effect.gen(function* () {
-      const taskIds = yield* Effect.all([SlowTask.enqueue({ id: 1 }), SlowTask.enqueue({ id: 2 })]);
+      const taskIds = yield* Effect.all([SlowTask.spawn({ id: 1 }), SlowTask.spawn({ id: 2 })]);
       yield* Effect.forEach(
         taskIds,
         (taskId) =>

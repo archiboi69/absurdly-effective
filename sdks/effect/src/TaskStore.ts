@@ -2,7 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { RoutedEnqueueOptions } from "./Task.ts";
+import type { RoutedSpawnOptions } from "./Task.ts";
 
 export type StoredTaskStatus =
   | { readonly _tag: "NotFound" }
@@ -13,10 +13,10 @@ export type StoredTaskStatus =
   | { readonly _tag: "Failed"; readonly failure: Schema.Json }
   | { readonly _tag: "Cancelled" };
 
-export interface EnqueueRequest {
+export interface SpawnRequest {
   readonly name: string;
   readonly payload: unknown;
-  readonly options: RoutedEnqueueOptions;
+  readonly options: RoutedSpawnOptions;
 }
 
 export interface StatusRequest {
@@ -26,7 +26,7 @@ export interface StatusRequest {
 }
 
 export class TaskStoreError extends Schema.TaggedError<TaskStoreError>()("TaskStoreError", {
-  operation: Schema.Literals(["enqueue", "status", "rerun"]),
+  operation: Schema.Literals(["spawn", "status", "rerun"]),
   taskName: Schema.String,
   taskId: Schema.NullOr(Schema.String),
   cause: Schema.Defect(),
@@ -35,7 +35,7 @@ export class TaskStoreError extends Schema.TaggedError<TaskStoreError>()("TaskSt
 export class TaskStore extends Context.Service<
   TaskStore,
   {
-    readonly enqueue: (request: EnqueueRequest) => Effect.Effect<string, TaskStoreError>;
+    readonly spawn: (request: SpawnRequest) => Effect.Effect<string, TaskStoreError>;
     readonly status: (request: StatusRequest) => Effect.Effect<StoredTaskStatus, TaskStoreError>;
   }
 >()("absurd-effect/TaskStore") {}

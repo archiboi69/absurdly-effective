@@ -18,7 +18,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import { hostname } from "node:os";
 import type * as Pg from "pg";
 
-import type { Cancellation, Retry, RoutedEnqueueOptions } from "./Task.ts";
+import type { Cancellation, Retry, RoutedSpawnOptions } from "./Task.ts";
 import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts";
 
 // SQL rows and JSON payloads are decoded by PostgreSQL at this internal seam.
@@ -172,7 +172,7 @@ const cancellationToJson = (
   return result;
 };
 
-const spawnOptionsToJson = (options: RoutedEnqueueOptions): Schema.JsonObject => {
+const spawnOptionsToJson = (options: RoutedSpawnOptions): Schema.JsonObject => {
   const retry = retryToJson(options.retry);
   const cancellation = cancellationToJson(options.cancellation);
   const result: SpawnOptionsJson = {
@@ -497,7 +497,7 @@ const makeContext = Effect.gen(function* () {
   const sql = yield* SqlClient;
   const absurd = Absurd.of({ startWorker: (options) => startWorker(sql, options) });
   const store = TaskStore.of({
-    enqueue: Effect.fn("Absurd.enqueue")(function* (request) {
+    spawn: Effect.fn("Absurd.spawn")(function* (request) {
       const rows = yield* sql<SpawnRow>`
         SELECT task_id
         FROM absurd.spawn_task(
@@ -509,7 +509,7 @@ const makeContext = Effect.gen(function* () {
       `.pipe(
         Effect.mapError((cause) =>
           TaskStoreError.make({
-            operation: "enqueue",
+            operation: "spawn",
             taskName: request.name,
             taskId: null,
             cause,
@@ -519,7 +519,7 @@ const makeContext = Effect.gen(function* () {
       const row = rows[0];
       if (row === undefined) {
         return yield* TaskStoreError.make({
-          operation: "enqueue",
+          operation: "spawn",
           taskName: request.name,
           taskId: null,
           cause: "absurd.spawn_task returned no task",

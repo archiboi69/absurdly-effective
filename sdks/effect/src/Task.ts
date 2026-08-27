@@ -31,7 +31,7 @@ export interface Cancellation {
   readonly maxDelay?: Duration.Input | undefined;
 }
 
-export interface EnqueueOptions {
+export interface SpawnOptions {
   readonly maxAttempts?: number | undefined;
   readonly retry?: Retry | undefined;
   readonly headers?: Schema.JsonObject | undefined;
@@ -39,7 +39,7 @@ export interface EnqueueOptions {
   readonly idempotencyKey?: string | undefined;
 }
 
-export interface RoutedEnqueueOptions extends EnqueueOptions {
+export interface RoutedSpawnOptions extends SpawnOptions {
   readonly queue: string;
 }
 
@@ -144,9 +144,9 @@ export interface Definition<
   readonly payloadSchema: Payload;
   readonly successSchema: Success;
   readonly idSchema: IdSchema<Name>;
-  readonly enqueue: (
+  readonly spawn: (
     payload: Payload["~type.make.in"],
-    options?: EnqueueOptions,
+    options?: SpawnOptions,
   ) => Effect.Effect<
     TaskId<Name>,
     TaskPayloadEncodeError | TaskStoreError,
@@ -202,8 +202,8 @@ export const make = <
   const successCodec = Schema.toCodecJson(successSchema);
   const idSchema = Schema.String.pipe(Schema.brand(`absurd-effect/TaskId/${name}`));
 
-  const enqueue: Definition<Name, PayloadSchema<Payload>, Success>["enqueue"] = Effect.fn(
-    `${name}.enqueue`,
+  const spawn: Definition<Name, PayloadSchema<Payload>, Success>["spawn"] = Effect.fn(
+    `${name}.spawn`,
   )(function* (input, options = {}) {
     const store = yield* TaskStore;
     const payload = yield* constructPayload(payloadSchema, input).pipe(
@@ -213,14 +213,14 @@ export const make = <
       Effect.mapError((cause) => TaskPayloadEncodeError.make({ taskName: name, cause })),
     );
     const idempotencyKey = options.idempotencyKey ?? config.idempotencyKey?.(payload);
-    const routedOptions: RoutedEnqueueOptions = {
+    const routedOptions: RoutedSpawnOptions = {
       ...options,
       queue: config.queue,
       maxAttempts: options.maxAttempts ?? config.maxAttempts,
       cancellation: options.cancellation ?? config.cancellation,
       idempotencyKey,
     };
-    const taskId = yield* store.enqueue({ name, payload: encoded, options: routedOptions });
+    const taskId = yield* store.spawn({ name, payload: encoded, options: routedOptions });
     return idSchema.make(taskId);
   });
 
@@ -242,7 +242,7 @@ export const make = <
     payloadSchema,
     successSchema,
     idSchema,
-    enqueue,
+    spawn,
     status,
     handler: (execute) => ({
       task: {

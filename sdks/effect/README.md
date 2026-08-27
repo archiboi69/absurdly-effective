@@ -6,8 +6,8 @@ Durable Effect programs, backed by Postgres and one `absurd.sql` file.
 
 | Start with | Use it for |
 | --- | --- |
-| `Task` and `Step` | Background jobs, webhooks, provider calls, and fan-out work |
-| Effect `Workflow` | Logic that sleeps, waits for signals, runs children, or compensates |
+| `Task` | Background jobs, webhooks, provider calls, and fan-out work |
+| `Workflow` | Logic that sleeps, waits for signals, runs children, or compensates |
 
 Both use stock Absurd queues. There is no Redis, scheduler service, or
 Effect-only database schema.
@@ -31,7 +31,7 @@ Keep the SDK and Absurd SQL on the same `0.x` version.
 
 ## Your first durable task
 
-The example below creates an email task, handles it in a worker, and enqueues it
+The example below creates an email task, handles it in a worker, and spawns it
 from another Effect program.
 
 ### 1. Define the task
@@ -98,10 +98,10 @@ worker cleanly.
 
 Using Bun? Replace `NodeRuntime` with `BunRuntime`; the Layer stays the same.
 
-### 4. Enqueue the task
+### 4. Spawn the task
 
 ```typescript
-const taskId = yield* SendEmail.enqueue({
+const taskId = yield* SendEmail.spawn({
   emailId: "email-123",
   to: "person@example.com",
   subject: "Your invoice",
@@ -125,10 +125,12 @@ if (status._tag === "Completed") {
 `status` is a snapshot. It can be `NotFound`, `Pending`, `Running`, `Sleeping`,
 `Completed`, `Failed`, or `Cancelled`.
 
-## Checkpoint an external mutation
+## Add a durable step when retries must not repeat work
 
-When a retry must not repeat a successful provider call, wrap that call in a
-named `Step`. Here, `mailer.send` represents an Effect-based provider client:
+Most tasks do not need explicit steps. Add one when a retry must not repeat a
+successful piece of work—for example, a provider call that may already have
+sent an email. Wrap that operation in a named `Step`. Here, `mailer.send`
+represents an Effect-based provider client:
 
 ```typescript
 import { Effect, Schema } from "effect";
@@ -159,39 +161,6 @@ A checkpoint cannot make the provider call and Postgres write atomic. Use the
 stable `CurrentTask.id` as the provider idempotency key whenever the provider
 supports one.
 
-## Test without Postgres
-
-`TestTaskStore` runs the same definition and handler in memory:
-
-```typescript
-import { assert, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
-import { TestTaskStore } from "absurd-effect";
-import { SendEmail } from "./SendEmail.js";
-import { SendEmailHandler } from "./SendEmailHandler.js";
-
-const TestLayer = TestTaskStore.layer({
-  handlers: [SendEmailHandler],
-});
-
-it.effect("sends an email", () =>
-  Effect.gen(function* () {
-    const taskId = yield* SendEmail.enqueue({
-      emailId: "email-123",
-      to: "person@example.com",
-      subject: "Your invoice",
-    });
-
-    const status = yield* SendEmail.status(taskId);
-    assert(status._tag === "Completed");
-    expect(status.value.messageId).toBeDefined();
-  }).pipe(Effect.provide(TestLayer)),
-);
-```
-
-Use PostgreSQL integration tests for claims, leases, automatic retries, and
-concurrency. Use `TestTaskStore` for fast domain and checkpoint tests.
-
 ## Need a durable workflow?
 
 Use the optional adapter when the business program itself spans time—for
@@ -199,7 +168,7 @@ example, it sleeps until tomorrow, waits for approval, runs child workflows, or
 needs compensation.
 
 ```bash
-npm install @effect/sql-pg pg
+pnpm install @effect/sql-pg pg
 ```
 
 The workflow remains Effect-native:
@@ -284,3 +253,37 @@ cross-SDK interoperability, continue with the
 `absurd-effect` mirrors Absurd's release version. For example,
 `absurd-effect@0.5.x` targets the Absurd SQL `0.5.x` contract. Version-matched
 Effect, TypeScript, and Python SDKs can share the same database and queues.
+
+## Test without Postgres
+
+`TestTaskStore` runs the same task definition and handler in memory:
+
+```typescript
+import { assert, expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import { TestTaskStore } from "absurd-effect";
+import { SendEmail } from "./SendEmail.js";
+import { SendEmailHandler } from "./SendEmailHandler.js";
+
+const TestLayer = TestTaskStore.layer({
+  handlers: [SendEmailHandler],
+});
+
+it.effect("sends an email", () =>
+  Effect.gen(function* () {
+    const taskId = yield* SendEmail.spawn({
+      emailId: "email-123",
+      to: "person@example.com",
+      subject: "Your invoice",
+    });
+
+    const status = yield* SendEmail.status(taskId);
+    assert(status._tag === "Completed");
+    expect(status.value.messageId).toBeDefined();
+  }).pipe(Effect.provide(TestLayer)),
+);
+```
+
+Use `TestTaskStore` for fast domain and checkpoint tests. Use PostgreSQL
+integration tests for claims, leases, automatic retries, concurrency, and SQL
+compatibility.

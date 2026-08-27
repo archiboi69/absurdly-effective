@@ -6,17 +6,13 @@ The SDK gives you two ways to work:
 
 | Start with | Choose it when |
 | --- | --- |
-| `Task` and `Step` | You need a background job, webhook, provider call, or fan-out worker |
-| Effect `Workflow` | The business program sleeps, waits for signals, runs children, or compensates |
+| `Task` | You need a background job, webhook, provider call, or fan-out worker |
+| `Workflow` | The business program sleeps, waits for signals, runs children, or compensates |
 
-Most applications should start with `Task`. Add a workflow when the business
+Most applications should start with `Task`. Add a `Workflow` when the business
 logic—not merely the worker process—spans time.
 
-Both APIs use stock Absurd queues. You do not need Redis, a scheduler service,
-a coordinator, or an Effect-only database schema.
-
-> **Warning:** Absurd and this SDK are early experiments and should not yet be
-> used in production.
+Both APIs use a plain Postgres database with Absurd's tables. You do not need Redis, a scheduler service, or a coordinator.
 
 New here? Follow [your first durable task](#tutorial-your-first-durable-task).
 If you already know you need sleeps, signals, or compensation, jump to
@@ -27,7 +23,7 @@ If you already know you need sleeps, signals, or compensation, jump to
 Install the Effect SDK:
 
 ```bash
-npm install absurd-effect effect @effect/platform-node
+pnpm add absurd-effect effect @effect/platform-node
 ```
 
 Then:
@@ -42,7 +38,7 @@ example, `absurd-effect@0.5.x` targets Absurd SQL `0.5.x`.
 
 ## Tutorial: your first durable task
 
-We will create an email task, run a worker, enqueue the task, and inspect its
+We will create an email task, run a worker, spawn the task, and inspect its
 result.
 
 ### Step 1: define the task
@@ -67,12 +63,12 @@ That one value is the task's wire contract:
 
 - `"send-email"` is the stable task name.
 - `queue` selects the physical Absurd queue.
-- `payload` is validated before enqueue and after claim.
+- `payload` is validated before spawn and after claim.
 - `success` is encoded by the worker and decoded when inspected.
 - `idempotencyKey` prevents duplicate logical work.
 
 Keep task names and payload schemas compatible after deployment. Other SDKs
-can enqueue the same task name and JSON payload.
+can spawn the same task name and JSON payload.
 
 ### Step 2: write the handler
 
@@ -121,10 +117,10 @@ worker bootstrap.
 
 Using Bun? Replace `NodeRuntime` with `BunRuntime`; the Layers do not change.
 
-### Step 4: enqueue the task
+### Step 4: spawn the task
 
 ```typescript
-const taskId = yield* SendEmail.enqueue({
+const taskId = yield* SendEmail.spawn({
   emailId: "email-123",
   to: "person@example.com",
   subject: "Your invoice",
@@ -179,7 +175,7 @@ Task.make       -> typed wire contract
 Task.handler    -> ordinary Effect handler
 Absurd.layer    -> Postgres-backed task service
 Worker.layer    -> scoped queue workers
-Task.enqueue    -> durable task ID
+Task.spawn      -> durable task ID
 Task.status     -> typed result snapshot
 ```
 
@@ -242,42 +238,6 @@ const WorkerLayer = Worker.layer({
 
 `Worker.layer` supplies only task-local services such as `CurrentTask` and the
 step executor. Your domain dependencies remain explicit.
-
-## Test the same task without Postgres
-
-Use `TestTaskStore` for fast handler and checkpoint tests:
-
-```typescript
-import { assert, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
-import { TestTaskStore } from "absurd-effect";
-import { SendEmail } from "./SendEmail.js";
-import { SendEmailHandler } from "./SendEmailHandler.js";
-
-const TestLayer = TestTaskStore.layer({
-  handlers: [SendEmailHandler],
-});
-
-it.effect("sends an email", () =>
-  Effect.gen(function* () {
-    const taskId = yield* SendEmail.enqueue({
-      emailId: "email-123",
-      to: "person@example.com",
-      subject: "Your invoice",
-    });
-
-    const status = yield* SendEmail.status(taskId);
-    assert(status._tag === "Completed");
-    expect(status.value.messageId).toBeDefined();
-  }).pipe(Effect.provide(TestLayer)),
-);
-```
-
-`TestTaskStore` uses the same definitions, handlers, and Schemas. It also keeps
-successful step checkpoints across explicit reruns.
-
-Use PostgreSQL integration tests for database claims, leases, automatic
-retries, concurrency, and SQL compatibility.
 
 ## Tutorial: your first Effect workflow
 
@@ -555,7 +515,7 @@ bounded infrastructure retry policy and become visible as protocol failures.
 
 ### Durable tasks
 
-- `Task.make`, `Task.enqueue`, `Task.status`, and `Task.handler`
+- `Task.make`, `Task.spawn`, `Task.status`, and `Task.handler`
 - `Absurd.layer`, `Absurd.layerConfig`, and `Absurd.layerPool`
 - `Worker.layer({ handlers })`
 - `CurrentTask` for stable task metadata
@@ -569,3 +529,40 @@ bounded infrastructure retry policy and become visible as protocol failures.
 - `AbsurdWorkflowEngine.executionStatus`
 - Native `Workflow.execute`, `poll`, `resume`, `interrupt`, and `toLayer`
 - Native Activities, durable clocks, deferreds, children, and compensation
+
+## Test the same task without Postgres
+
+Use `TestTaskStore` for fast handler and checkpoint tests:
+
+```typescript
+import { assert, expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import { TestTaskStore } from "absurd-effect";
+import { SendEmail } from "./SendEmail.js";
+import { SendEmailHandler } from "./SendEmailHandler.js";
+
+const TestLayer = TestTaskStore.layer({
+  handlers: [SendEmailHandler],
+});
+
+it.effect("sends an email", () =>
+  Effect.gen(function* () {
+    const taskId = yield* SendEmail.spawn({
+      emailId: "email-123",
+      to: "person@example.com",
+      subject: "Your invoice",
+    });
+
+    const status = yield* SendEmail.status(taskId);
+    assert(status._tag === "Completed");
+    expect(status.value.messageId).toBeDefined();
+  }).pipe(Effect.provide(TestLayer)),
+);
+```
+
+`TestTaskStore` uses the same definitions, handlers, and Schemas. It also keeps
+successful step checkpoints across explicit reruns.
+
+Use `TestTaskStore` for fast domain and checkpoint tests. Use PostgreSQL
+integration tests for database claims, leases, automatic retries, concurrency,
+and SQL compatibility.

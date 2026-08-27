@@ -4,7 +4,7 @@ import type * as Schema from "effect/Schema";
 export interface CurrentTaskService {
   /** Stable Absurd task UUID. */
   readonly id: string;
-  /** Headers attached when the task was enqueued. */
+  /** Headers attached when the task was spawned. */
   readonly headers: Schema.JsonObject;
 }
 
