@@ -1,7 +1,8 @@
-.PHONY: format check check-python test test-core test-typescript test-python build-absurdctl build-absurdctl-pypi docs serve-docs
+.PHONY: format check check-python test test-core test-effect test-typescript test-python build-absurdctl build-absurdctl-pypi docs serve-docs
 
 # Format all code
 format:
+	@cd sdks/effect && vp fmt
 	@cd sdks/typescript && vp fmt
 	@cd habitat/ui && vp fmt
 	@uvx ruff format tests sdks/python
@@ -35,12 +36,17 @@ check-python:
 	@cd sdks/python && uv run --all-groups --with ty ty check
 
 # Run all tests
-test: test-core test-typescript test-python
+test: test-core test-effect test-typescript test-python
 
 # Run core tests
 test-core:
 	@echo "Running core tests"
 	@cd tests; uv run pytest
+
+# Run Effect SDK checks and tests
+test-effect:
+	@echo "Running Effect SDK checks and tests"
+	@cd sdks/effect && vp run type-check && vp test run
 
 # Run TypeScript SDK checks and tests
 test-typescript:

@@ -1,5 +1,6 @@
 import { antipattern, correctness, effectNative, style } from "@effect/tsgo/oxlint-presets";
 import { defineConfig } from "vite-plus";
+import { configDefaults } from "vite-plus/test/config";
 
 // Every effecttsgo rule the @effect/tsgo presets ship, at error severity.
 // SAFETY: every preset exposes the same `rules` record shape, so merging their
@@ -62,6 +63,10 @@ const antiSlopRuleNames = [
 ];
 
 export default defineConfig({
+  test: {
+    exclude: [...configDefaults.exclude, ".context/**"],
+    hookTimeout: 120_000,
+  },
   fmt: {
     ignorePatterns: [...outsideWorkspace, ...agentTooling, "*.md", "*.toml", "*.sql"],
   },

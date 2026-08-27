@@ -118,3 +118,6 @@ Tests use `absurd.fake_now` session variable to control time. See
 
 The goal for the SDKs is to be as simple as possible.  The TypeScript SDK is an attempt
 at this, but ideally one could have even lighter SDKs.
+
+The separate Effect SDK keeps Effect-specific task and workflow APIs out of the
+promise-based TypeScript and Python SDKs.

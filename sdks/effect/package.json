@@ -1,14 +1,15 @@
 {
   "name": "absurd-effect",
   "version": "0.5.0",
-  "description": "Effect-native tasks and durable steps backed by Absurd",
+  "description": "Effect-native tasks and workflows backed by Absurd",
   "keywords": [
     "absurd",
     "durable",
     "effect",
     "postgresql",
     "queue",
-    "task"
+    "task",
+    "workflow"
   ],
   "license": "Apache-2.0",
   "author": "",
@@ -29,6 +30,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/cjs/index.js"
+    },
+    "./unstable/workflow": {
+      "types": "./dist/unstable/workflow/index.d.ts",
+      "import": "./dist/unstable/workflow/index.js",
+      "require": "./dist/cjs/unstable/workflow/index.js"
     }
   },
   "scripts": {
