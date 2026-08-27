@@ -40,6 +40,7 @@ const ClaimedRow = Schema.Struct({
   attempt: Schema.Int,
   task_name: Schema.String,
   params: Schema.Unknown,
+  headers: Schema.Unknown,
 });
 export type ClaimedRow = typeof ClaimedRow.Type;
 
@@ -269,7 +270,7 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
     optionalRow(
       ClaimedRow,
       sql.unsafe(
-        `select run_id, task_id, attempt, task_name, params
+        `select run_id, task_id, attempt, task_name, params, headers
          from absurd.claim_task($1, $2, $3, $4)`,
         [queue, workerId, claimTimeoutSeconds, 1],
       ),
