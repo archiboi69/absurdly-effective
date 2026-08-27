@@ -2,13 +2,13 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import type { ExecuteStep } from "./CurrentTask.ts";
 import {
   StepDecodeError,
   StepEncodeError,
   type Options,
   type StepPersistenceError,
 } from "./Step.ts";
-import type { currentTaskStep } from "./CurrentTask.ts";
 
 // Stored step values cross an untyped JSON boundary owned by the success Schema.
 // oxlint-disable anti-slop/no-unknown-parameters
@@ -20,7 +20,7 @@ export interface StoredStep {
 
 export type BeginStep = (name: string) => Effect.Effect<StoredStep, StepPersistenceError>;
 
-export const fromStorage = (begin: BeginStep): ReturnType<typeof currentTaskStep> =>
+export const make = (begin: BeginStep): ExecuteStep =>
   Effect.fn("Step.make")(function* <Success extends Schema.Top, Error, Requirements>(
     options: Options<Success, Error, Requirements>,
   ) {
@@ -39,3 +39,29 @@ export const fromStorage = (begin: BeginStep): ReturnType<typeof currentTaskStep
     yield* stored.complete(encoded);
     return value;
   });
+
+export interface MemoryOptions {
+  readonly checkpoints: Map<string, unknown>;
+  readonly onStep?: (name: string) => void;
+}
+
+/** @internal Creates one in-memory task run over durable test checkpoints. */
+export const inMemory = ({ checkpoints, onStep }: MemoryOptions): BeginStep => {
+  const occurrences = new Map<string, number>();
+  return (name) =>
+    Effect.sync(() => {
+      onStep?.(name);
+      const occurrence = (occurrences.get(name) ?? 0) + 1;
+      occurrences.set(name, occurrence);
+      const checkpointName = occurrence === 1 ? name : `${name}#${occurrence}`;
+      return {
+        value: checkpoints.has(checkpointName)
+          ? Option.some(checkpoints.get(checkpointName))
+          : Option.none(),
+        complete: (value: unknown) =>
+          Effect.sync(() => {
+            checkpoints.set(checkpointName, value);
+          }),
+      };
+    });
+};

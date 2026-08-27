@@ -6,9 +6,9 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { Absurd, type Registration, type TaskContext } from "./Absurd.ts";
-import { CurrentTask, currentTaskFromRuntime } from "./CurrentTask.ts";
+import { CurrentTask, currentTaskWithStep } from "./CurrentTask.ts";
 import { StepPersistenceError } from "./Step.ts";
-import { fromStorage, type BeginStep } from "./StepStorage.ts";
+import * as StepStorage from "./StepStorage.ts";
 import type { AnyHandler, HandlerRequirements } from "./Task.ts";
 import { TaskStore } from "./TaskStore.ts";
 
@@ -28,7 +28,7 @@ export interface Options<Handlers extends ReadonlyArray<AnyHandler>> {
   readonly fatalOnLeaseTimeout?: boolean | undefined;
 }
 
-const beginStep = (context: TaskContext): BeginStep =>
+const beginStep = (context: TaskContext): StepStorage.BeginStep =>
   Effect.fn("Worker.beginStep")(function* (name) {
     const handle = yield* context.beginStep(name).pipe(
       Effect.mapError((cause) =>
@@ -67,10 +67,10 @@ const executeHandler = (
   handler.execute(payload).pipe(
     Effect.provideService(
       CurrentTask,
-      currentTaskFromRuntime({
+      currentTaskWithStep({
         id: context.id,
         headers: context.headers,
-        executeStep: fromStorage(beginStep(context)),
+        executeStep: StepStorage.make(beginStep(context)),
       }),
     ),
     Effect.provideService(TaskStore, store),

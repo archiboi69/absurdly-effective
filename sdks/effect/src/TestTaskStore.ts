@@ -3,10 +3,9 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
-import { CurrentTask, currentTaskFromRuntime } from "./CurrentTask.ts";
-import { fromStorage, type BeginStep } from "./StepStorage.ts";
+import { CurrentTask, currentTaskWithStep } from "./CurrentTask.ts";
+import * as StepStorage from "./StepStorage.ts";
 import type { AnyHandler, HandlerRequirements, RoutedSpawnOptions } from "./Task.ts";
 import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts";
 
@@ -33,25 +32,6 @@ interface MutableEntry {
   readonly checkpoints: Map<string, unknown>;
   status: StoredTaskStatus;
 }
-
-const makeBeginStep = (entry: MutableEntry): BeginStep => {
-  const counts = new Map<string, number>();
-  return (name) =>
-    Effect.sync(() => {
-      const count = (counts.get(name) ?? 0) + 1;
-      counts.set(name, count);
-      const checkpointName = count === 1 ? name : `${name}#${count}`;
-      return {
-        value: entry.checkpoints.has(checkpointName)
-          ? Option.some(entry.checkpoints.get(checkpointName))
-          : Option.none(),
-        complete: (value: unknown) =>
-          Effect.sync(() => {
-            entry.checkpoints.set(checkpointName, value);
-          }),
-      };
-    });
-};
 
 export class TestTaskStore extends Context.Service<
   TestTaskStore,
@@ -98,10 +78,10 @@ const makeLayer = <const Handlers extends ReadonlyArray<AnyHandler>>(
         const handler = byName.get(`${entry.options.queue}:${entry.name}`);
         if (handler === undefined) return;
         entry.status = { _tag: "Running" };
-        const current = currentTaskFromRuntime({
+        const current = currentTaskWithStep({
           id: entry.id,
           headers: entry.options.headers ?? {},
-          executeStep: fromStorage(makeBeginStep(entry)),
+          executeStep: StepStorage.make(StepStorage.inMemory({ checkpoints: entry.checkpoints })),
         });
         const exit = yield* handler.execute(entry.payload).pipe(
           Effect.provideService(CurrentTask, current),

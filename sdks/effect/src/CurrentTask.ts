@@ -13,7 +13,8 @@ export class CurrentTask extends Context.Service<
   }
 >()("absurdly-effective/CurrentTask") {}
 
-type ExecuteStep = <Success extends Schema.Top, Error, Requirements>(
+/** @internal */
+export type ExecuteStep = <Success extends Schema.Top, Error, Requirements>(
   options: StepOptions<Success, Error, Requirements>,
 ) => Effect.Effect<
   Success["Type"],
@@ -26,7 +27,7 @@ type ExecuteStep = <Success extends Schema.Top, Error, Requirements>(
 const stepImplementations = new WeakMap<CurrentTask["Service"], ExecuteStep>();
 
 /** @internal */
-export const currentTaskFromRuntime = (options: {
+export const currentTaskWithStep = (options: {
   readonly id: string;
   readonly headers: Schema.JsonObject;
   readonly executeStep: ExecuteStep;
