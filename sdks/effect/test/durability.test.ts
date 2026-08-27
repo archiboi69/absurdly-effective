@@ -11,7 +11,13 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { Activity, DurableDeferred, Workflow, WorkflowEngine } from "effect/unstable/workflow";
+import {
+  Activity,
+  DurableClock,
+  DurableDeferred,
+  Workflow,
+  WorkflowEngine,
+} from "effect/unstable/workflow";
 import { beforeAll, describe, expect, it } from "@effect/vitest";
 import { pool, randomName } from "./setup.ts";
 import { AbsurdWorkflowEngine, type QueueOptions } from "../src/unstable/workflow/index.ts";
@@ -685,6 +691,81 @@ describe("AbsurdWorkflowEngine durability", () => {
     }),
   );
 
+  const SleepingWorkflow = AbsurdWorkflowEngine.inQueue(interruptQueue)(
+    Workflow.make("sdk-int/SleepingInterrupt", {
+      payload: { id: Schema.String },
+      success: Schema.String,
+      error: Schema.Never,
+      idempotencyKey: ({ id }) => id,
+    }),
+  );
+
+  const SleepingWorkflowLayer = SleepingWorkflow.toLayer(
+    Effect.fn("sdk-int/SleepingInterrupt.handler")(function* ({ id }) {
+      yield* DurableClock.sleep({
+        name: `long-sleep:${id}`,
+        duration: Duration.hours(1),
+        inMemoryThreshold: Duration.zero,
+      });
+      return id;
+    }),
+  );
+
+  const RunningWorkflow = AbsurdWorkflowEngine.inQueue(interruptQueue)(
+    Workflow.make("sdk-int/RunningInterrupt", {
+      payload: { id: Schema.String },
+      success: Schema.String,
+      error: Schema.Never,
+      idempotencyKey: ({ id }) => id,
+    }),
+  );
+
+  const RunningWorkflowLayer = RunningWorkflow.toLayer(
+    Effect.fn("sdk-int/RunningInterrupt.handler")(function* ({ id }) {
+      yield* Effect.sleep(Duration.seconds(1));
+      return id;
+    }),
+  );
+
+  const EarlyDeferred = DurableDeferred.make("sdk-int/EarlyDeferred");
+
+  const EarlyDeferredWorkflow = AbsurdWorkflowEngine.inQueue(interruptQueue)(
+    Workflow.make("sdk-int/EarlyDeferred", {
+      payload: { id: Schema.String },
+      success: Schema.String,
+      error: Schema.Never,
+      idempotencyKey: ({ id }) => id,
+    }),
+  );
+
+  const EarlyDeferredWorkflowLayer = EarlyDeferredWorkflow.toLayer(
+    Effect.fn("sdk-int/EarlyDeferred.handler")(function* ({ id }) {
+      yield* Effect.sleep(Duration.millis(250));
+      yield* DurableDeferred.await(EarlyDeferred);
+      return id;
+    }),
+  );
+
+  const FirstSequentialDeferred = DurableDeferred.make("sdk-int/FirstSequentialDeferred");
+  const SecondSequentialDeferred = DurableDeferred.make("sdk-int/SecondSequentialDeferred");
+
+  const SequentialDeferredWorkflow = AbsurdWorkflowEngine.inQueue(interruptQueue)(
+    Workflow.make("sdk-int/SequentialDeferred", {
+      payload: { id: Schema.String },
+      success: Schema.String,
+      error: Schema.Never,
+      idempotencyKey: ({ id }) => id,
+    }),
+  );
+
+  const SequentialDeferredWorkflowLayer = SequentialDeferredWorkflow.toLayer(
+    Effect.fn("sdk-int/SequentialDeferred.handler")(function* ({ id }) {
+      yield* DurableDeferred.await(FirstSequentialDeferred);
+      yield* DurableDeferred.await(SecondSequentialDeferred);
+      return id;
+    }),
+  );
+
   it.live("safely interrupts a suspended workflow and runs its compensation once", () =>
     Effect.gen(function* () {
       const payload = { id: `${runPrefix}-safe-interrupt` };
@@ -701,7 +782,10 @@ describe("AbsurdWorkflowEngine durability", () => {
             );
             yield* awaitSuspension(SafeInterruptWf, executionId, context);
 
-            yield* SafeInterruptWf.interrupt(executionId).pipe(Effect.provideContext(context));
+            yield* Effect.all(
+              [SafeInterruptWf.interrupt(executionId), SafeInterruptWf.interrupt(executionId)],
+              { concurrency: "unbounded", discard: true },
+            ).pipe(Effect.provideContext(context));
 
             const exit = yield* SafeInterruptWf.execute(payload).pipe(
               Effect.provideContext(context),
@@ -721,6 +805,13 @@ describe("AbsurdWorkflowEngine durability", () => {
             expect(polled.value._tag).toBe("Complete");
             if (polled.value._tag !== "Complete") return;
             expect(Exit.hasInterrupts(polled.value.exit)).toBe(true);
+
+            // Safe interruption is idempotent after the workflow is terminal.
+            yield* SafeInterruptWf.interrupt(executionId).pipe(Effect.provideContext(context));
+            const afterTerminalInterrupt = yield* SafeInterruptWf.poll(executionId).pipe(
+              Effect.provideContext(context),
+            );
+            expect(afterTerminalInterrupt).toEqual(polled);
           }),
       );
 
@@ -731,6 +822,213 @@ describe("AbsurdWorkflowEngine durability", () => {
         [payload.id],
       );
       expect(rows).toEqual([{ acquisitions: 1, compensations: 1 }]);
+
+      const waits = yield* queryRows<{ count: string }>(
+        `SELECT count(*)::text AS count
+           FROM absurd.w_${interruptQueue} w
+           JOIN absurd.t_${interruptQueue} t ON t.task_id = w.task_id
+          WHERE t.idempotency_key = $1`,
+        [executionId],
+      );
+      expect(waits).toEqual([{ count: "0" }]);
+    }),
+  );
+
+  it.live("interrupts a durable clock without waiting for its deadline", () =>
+    Effect.gen(function* () {
+      const payload = { id: `${runPrefix}-clock-interrupt` };
+      const executionId = yield* SleepingWorkflow.executionId(payload);
+
+      yield* withRuntime(
+        "runtime-a",
+        [SleepingWorkflowLayer],
+        { queues: fastQueues(interruptQueue) },
+        (context) =>
+          Effect.gen(function* () {
+            yield* SleepingWorkflow.execute(payload, { discard: true }).pipe(
+              Effect.provideContext(context),
+            );
+            yield* awaitSuspension(SleepingWorkflow, executionId, context);
+            yield* SleepingWorkflow.interrupt(executionId).pipe(Effect.provideContext(context));
+
+            const exit = yield* SleepingWorkflow.execute(payload).pipe(
+              Effect.provideContext(context),
+              Effect.timeoutOrElse({
+                duration: Duration.seconds(5),
+                orElse: () => Effect.die("durable clock ignored safe interruption"),
+              }),
+              Effect.exit,
+            );
+            expect(Exit.hasInterrupts(exit)).toBe(true);
+          }),
+      );
+    }),
+  );
+
+  it.live("observes an interrupt before committing an in-flight handler", () =>
+    Effect.gen(function* () {
+      const payload = { id: `${runPrefix}-running-interrupt` };
+      const executionId = yield* RunningWorkflow.executionId(payload);
+
+      yield* withRuntime(
+        "runtime-a",
+        [RunningWorkflowLayer],
+        { queues: fastQueues(interruptQueue) },
+        (context) =>
+          Effect.gen(function* () {
+            yield* RunningWorkflow.execute(payload, { discard: true }).pipe(
+              Effect.provideContext(context),
+            );
+            yield* queryRows<{ state: string }>(
+              `SELECT state FROM absurd.t_${interruptQueue} WHERE idempotency_key = $1`,
+              [executionId],
+            ).pipe(
+              Effect.repeat({
+                schedule: Schedule.spaced(Duration.millis(10)),
+                until: (rows) => rows[0]?.state === "running",
+              }),
+              Effect.timeoutOrElse({
+                duration: Duration.seconds(5),
+                orElse: () => Effect.die("workflow never entered the running state"),
+              }),
+            );
+
+            yield* RunningWorkflow.interrupt(executionId).pipe(Effect.provideContext(context));
+            const exit = yield* RunningWorkflow.execute(payload).pipe(
+              Effect.provideContext(context),
+              Effect.timeout(Duration.seconds(5)),
+              Effect.exit,
+            );
+            expect(Exit.hasInterrupts(exit)).toBe(true);
+          }),
+      );
+    }),
+  );
+
+  it.live("does not lose a deferred completed before its wait is registered", () =>
+    Effect.gen(function* () {
+      const payload = { id: `${runPrefix}-early-deferred` };
+      const executionId = yield* EarlyDeferredWorkflow.executionId(payload);
+
+      const result = yield* withRuntime(
+        "runtime-a",
+        [EarlyDeferredWorkflowLayer],
+        { queues: fastQueues(interruptQueue) },
+        (context) =>
+          Effect.gen(function* () {
+            yield* EarlyDeferredWorkflow.execute(payload, { discard: true }).pipe(
+              Effect.provideContext(context),
+            );
+            const token = DurableDeferred.tokenFromExecutionId(EarlyDeferred, {
+              workflow: EarlyDeferredWorkflow,
+              executionId,
+            });
+            yield* DurableDeferred.succeed(EarlyDeferred, { token, value: undefined }).pipe(
+              Effect.provideContext(context),
+            );
+            return yield* EarlyDeferredWorkflow.execute(payload).pipe(
+              Effect.provideContext(context),
+              Effect.timeout(Duration.seconds(5)),
+            );
+          }),
+      );
+
+      expect(result).toBe(payload.id);
+    }),
+  );
+
+  it.live("allows unsafe cancellation to win a race with safe interruption", () =>
+    Effect.gen(function* () {
+      const payload = { id: `${runPrefix}-interrupt-cancel-race` };
+      const executionId = yield* SleepingWorkflow.executionId(payload);
+
+      yield* withRuntime(
+        "runtime-a",
+        [SleepingWorkflowLayer],
+        { queues: fastQueues(interruptQueue) },
+        (context) =>
+          Effect.gen(function* () {
+            yield* SleepingWorkflow.execute(payload, { discard: true }).pipe(
+              Effect.provideContext(context),
+            );
+            yield* awaitSuspension(SleepingWorkflow, executionId, context);
+            const engine = Context.get(context, WorkflowEngine.WorkflowEngine);
+
+            const exits = yield* Effect.all(
+              [
+                SleepingWorkflow.interrupt(executionId).pipe(Effect.exit),
+                engine.interruptUnsafe(SleepingWorkflow, executionId).pipe(Effect.exit),
+              ],
+              { concurrency: "unbounded" },
+            ).pipe(Effect.provideContext(context));
+            expect(exits.every(Exit.isSuccess)).toBe(true);
+
+            const terminal = yield* queryRows<{ state: string }>(
+              `SELECT state FROM absurd.t_${interruptQueue} WHERE idempotency_key = $1`,
+              [executionId],
+            ).pipe(
+              Effect.repeat({
+                schedule: Schedule.spaced(Duration.millis(10)),
+                until: (rows) => rows[0]?.state === "cancelled",
+              }),
+              Effect.timeout(Duration.seconds(5)),
+            );
+            expect(terminal).toEqual([{ state: "cancelled" }]);
+          }),
+      );
+    }),
+  );
+
+  it.live("keeps a sequential workflow parked on only its unresolved deferred", () =>
+    Effect.gen(function* () {
+      const payload = { id: `${runPrefix}-sequential-deferred` };
+      const executionId = yield* SequentialDeferredWorkflow.executionId(payload);
+
+      const result = yield* withRuntime(
+        "runtime-a",
+        [SequentialDeferredWorkflowLayer],
+        { queues: fastQueues(interruptQueue) },
+        (context) =>
+          Effect.gen(function* () {
+            yield* SequentialDeferredWorkflow.execute(payload, { discard: true }).pipe(
+              Effect.provideContext(context),
+            );
+            const firstToken = DurableDeferred.tokenFromExecutionId(FirstSequentialDeferred, {
+              workflow: SequentialDeferredWorkflow,
+              executionId,
+            });
+            yield* DurableDeferred.succeed(FirstSequentialDeferred, {
+              token: firstToken,
+              value: undefined,
+            }).pipe(Effect.provideContext(context));
+            yield* awaitSuspension(SequentialDeferredWorkflow, executionId, context);
+            yield* Effect.sleep(Duration.millis(100));
+
+            const waits = yield* queryRows<{ count: string; state: string }>(
+              `SELECT count(w.*)::text AS count, min(t.state) AS state
+                 FROM absurd.t_${interruptQueue} t
+                 LEFT JOIN absurd.w_${interruptQueue} w ON w.task_id = t.task_id
+                WHERE t.idempotency_key = $1`,
+              [executionId],
+            );
+            expect(waits).toEqual([{ count: "1", state: "sleeping" }]);
+
+            const secondToken = DurableDeferred.tokenFromExecutionId(SecondSequentialDeferred, {
+              workflow: SequentialDeferredWorkflow,
+              executionId,
+            });
+            yield* DurableDeferred.succeed(SecondSequentialDeferred, {
+              token: secondToken,
+              value: undefined,
+            }).pipe(Effect.provideContext(context));
+            return yield* SequentialDeferredWorkflow.execute(payload).pipe(
+              Effect.provideContext(context),
+              Effect.timeout(Duration.seconds(5)),
+            );
+          }),
+      );
+
+      expect(result).toBe(payload.id);
     }),
   );
 });

@@ -153,6 +153,31 @@ const status = yield* AbsurdWorkflowEngine.executionStatus(
 `Completed.exit` contains the schema-decoded typed workflow outcome. `Failed`
 means the backing Absurd task failed at the infrastructure or protocol level.
 
+## Safe interruption
+
+`Workflow.interrupt(executionId)` is durable and cooperative. The engine first
+records Effect's reserved interruption marker, then rings the execution's
+current one-shot Absurd event wait. Replaying the workflow observes the marker,
+interrupts through Effect, and runs registered compensations. Repeated calls
+and calls against a terminal execution are no-ops.
+
+The event is only a scheduler doorbell; it never carries the meaning or result
+of a clock, deferred, or interruption. Those facts are persisted separately
+and re-read during replay. This makes event emission races safe: an event sent
+before the wait is registered is cached by Absurd, and a fact written during
+registration is found by the engine's post-registration check.
+
+An operation already running in another worker process cannot be remotely
+killed. It may reach its next Effect boundary, but the engine rechecks the
+durable marker before committing handler success, so a completed interrupt
+request is not silently lost. Code that can block indefinitely should be
+modeled as bounded or retryable `Activity` work rather than an unbounded
+in-process call.
+
+This protocol uses stock Absurd `await_event` and `emit_event`; it requires no
+push worker or additional scheduler-control stored procedure. Workers remain
+pull-only and claim a run after its event wait becomes pending.
+
 ## Producing work outside Effect
 
 The promise-based TypeScript and Python SDKs remain generic. A producer that

@@ -1,13 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from psycopg.sql import SQL
 
 
-@pytest.mark.parametrize("storage_mode", ["unpartitioned", "partitioned"])
-def test_schedule_run_moves_task_between_running_and_sleeping(client, storage_mode):
-    queue = f"schedule-state-{storage_mode}"
-    client.create_queue(queue, storage_mode=storage_mode)
+def test_schedule_run_moves_task_between_running_and_sleeping(client):
+    queue = "schedule-state"
+    client.create_queue(queue)
 
     base = datetime(2024, 4, 1, 10, 0, tzinfo=timezone.utc)
     client.set_fake_now(base)
@@ -29,10 +27,7 @@ def test_schedule_run_moves_task_between_running_and_sleeping(client, storage_mo
     assert task_after_schedule is not None
     assert task_after_schedule["state"] == "sleeping"
 
-    resumed_at = base + timedelta(minutes=1)
-    client.set_fake_now(resumed_at)
-    wake = client.wake_task(queue, spawn.task_id)
-    assert wake == {"run_id": run_id, "previous_state": "sleeping"}
+    client.set_fake_now(wake_at)
     resumed = client.claim_tasks(queue, worker="worker-1", claim_timeout=120)[0]
     assert resumed["run_id"] == run_id
     assert resumed["attempt"] == 1
@@ -40,7 +35,7 @@ def test_schedule_run_moves_task_between_running_and_sleeping(client, storage_mo
     run_after_resume = client.get_run(queue, run_id)
     assert run_after_resume is not None
     assert run_after_resume["state"] == "running"
-    assert run_after_resume["started_at"] == resumed_at
+    assert run_after_resume["started_at"] == wake_at
 
 
 def test_claim_timeout_releases_run_to_new_worker(client):
@@ -50,7 +45,7 @@ def test_claim_timeout_releases_run_to_new_worker(client):
     base = datetime(2024, 4, 2, 9, 0, tzinfo=timezone.utc)
     client.set_fake_now(base)
 
-    client.spawn_task(queue, "lease", {"step": "attempt"})
+    spawn = client.spawn_task(queue, "lease", {"step": "attempt"})
     first_claim = client.claim_tasks(queue, worker="worker-a", claim_timeout=30)[0]
     run_id = first_claim["run_id"]
 

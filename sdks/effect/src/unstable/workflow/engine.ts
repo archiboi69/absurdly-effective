@@ -27,6 +27,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import type * as SqlError from "effect/unstable/sql/SqlError";
@@ -34,7 +35,12 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { Activity, DurableDeferred, Workflow, WorkflowEngine } from "effect/unstable/workflow";
 import * as os from "os";
 
-import { absurdWorkflowStore, type ClaimedRow, type TaskSnapshotRow } from "./store.ts";
+import {
+  absurdWorkflowStore,
+  type ClaimedRow,
+  type TaskSnapshotRow,
+  type TaskState,
+} from "./store.ts";
 import {
   decodeStructuralExit,
   encodeStructuralExit,
@@ -85,7 +91,7 @@ interface ActiveClaim {
  * claimed queue/task/run triple without rereading mutable ownership columns.
  */
 class ClaimContext extends Context.Service<ClaimContext, ActiveClaim>()(
-  "absurd-effect/unstable/workflow/ClaimContext",
+  "absurd-effect/unstable/workflow/engine/ClaimContext",
 ) {}
 
 const MAX_QUEUE_NAME_LENGTH = 57;
@@ -94,7 +100,6 @@ const MIN_CLAIM_TIMEOUT_SECONDS = 1;
 const WORKFLOW_INFRASTRUCTURE_MAX_ATTEMPTS = 5;
 const UNKNOWN_TASK_DEFER_BASE_SECONDS = 15;
 const UNKNOWN_TASK_DEFER_JITTER_SECONDS = 15;
-const SUSPEND_RETRY_SECONDS = 0.25;
 
 /**
  * Normalizes a claim lease to whole seconds (Absurd's `make_interval` takes
@@ -176,7 +181,7 @@ class ExecutionStatusService extends Context.Service<
       executionId: string,
     ) => Effect.Effect<AbsurdWorkflowExecutionStatus<unknown, unknown>>;
   }
->()("absurd-effect/unstable/workflow/ExecutionStatusService") {}
+>()("absurd-effect/unstable/workflow/engine/ExecutionStatusService") {}
 
 interface Registration {
   readonly workflow: Workflow.Any;
@@ -213,11 +218,22 @@ const deferredCheckpointName = (name: string): string => `$defer:${name}`;
 const clockDeadlineCheckpointName = (deferredName: string): string => `$clock:${deferredName}`;
 // Reserved and written exclusively by this adapter's interrupt transaction.
 const INTERRUPT_CHECKPOINT_NAME = "$effect:interrupt";
+const makeDoorbell = (executionId: string) =>
+  Effect.map(Effect.all([Random.nextInt, Random.nextInt]), ([high, low]) => {
+    const id = `${high.toString(36)}:${low.toString(36)}`;
+    return {
+      checkpointName: `$effect:wake:${id}`,
+      eventName: `absurd-effect:wake:${executionId}:${id}`,
+    };
+  });
 const deferredEventName = (
   workflowTag: string,
   executionId: string,
   deferredName: string,
 ): string => `absurd-effect:deferred:${workflowTag}:${executionId}:${deferredName}`;
+
+const isTerminalTaskState = (state: TaskState): boolean =>
+  state === "completed" || state === "failed" || state === "cancelled";
 
 const deterministicJitterSeconds = (seed: string, maxJitterSeconds: number): number => {
   let hash = 2166136261;
@@ -396,10 +412,14 @@ const makeServices = (options: LayerOptions) =>
       queue: string,
       claimed: ClaimedRow,
     ): Effect.fn.Return<void> {
+      const doorbell = yield* makeDoorbell(claimed.task_id);
       yield* fatal(
-        store.scheduleRunInSeconds(
+        store.awaitEvent(
           queue,
+          claimed.task_id,
           claimed.run_id,
+          doorbell.checkpointName,
+          doorbell.eventName,
           UNKNOWN_TASK_DEFER_BASE_SECONDS +
             deterministicJitterSeconds(claimed.run_id, UNKNOWN_TASK_DEFER_JITTER_SECONDS),
         ),
@@ -419,6 +439,21 @@ const makeServices = (options: LayerOptions) =>
         Effect.forever,
       );
 
+    /**
+     * Rings the one-shot event currently used to park a run, if it has
+     * reached that suspension point. The durable state that explains the
+     * wake is always written first; the event is only a scheduler doorbell.
+     */
+    const ringCurrentDoorbell = Effect.fnUntraced(function* (
+      queue: string,
+      runId: string,
+    ): Effect.fn.Return<void> {
+      const eventName = yield* fatal(store.currentWakeEvent(queue, runId));
+      if (Option.isSome(eventName)) {
+        yield* fatal(store.emitEvent(queue, eventName.value, null));
+      }
+    });
+
     const parkSuspended = Effect.fnUntraced(function* (
       registration: Registration,
       claim: ActiveClaim,
@@ -433,11 +468,27 @@ const makeServices = (options: LayerOptions) =>
         return;
       }
 
-      for (const deferredName of instance.awaitedDeferreds) {
-        const completed = yield* fatal(
+      const deferredAvailable = Effect.fnUntraced(function* (
+        deferredName: string,
+      ): Effect.fn.Return<boolean> {
+        const checkpoint = yield* fatal(
           store.checkpointState(claim.queue, claim.taskId, deferredCheckpointName(deferredName)),
         );
-        if (Option.isSome(completed)) continue;
+        if (Option.isSome(checkpoint)) return true;
+        const event = yield* fatal(
+          store.eventPayload(
+            claim.queue,
+            deferredEventName(registration.workflow._tag, executionId, deferredName),
+          ),
+        );
+        return Option.isSome(event);
+      });
+
+      let earliestDeadline: number | undefined;
+      const unresolvedDeferreds: Array<string> = [];
+      for (const deferredName of instance.awaitedDeferreds) {
+        if (yield* deferredAvailable(deferredName)) continue;
+        unresolvedDeferreds.push(deferredName);
 
         const deadline = yield* fatal(
           store.checkpointState(
@@ -447,56 +498,48 @@ const makeServices = (options: LayerOptions) =>
           ),
         );
         if (Option.isSome(deadline) && typeof deadline.value === "number") {
-          const now = yield* Clock.currentTimeMillis;
-          yield* fatal(
-            store.scheduleRunInSeconds(
-              claim.queue,
-              claim.runId,
-              Math.max(0, (deadline.value - now) / 1000),
-            ),
-          );
-          const racedInterrupt = yield* fatal(
-            store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
-          );
-          if (Option.isSome(racedInterrupt)) {
-            yield* fatal(store.wakeTask(claim.queue, claim.taskId));
-          }
-          return;
+          earliestDeadline =
+            earliestDeadline === undefined
+              ? deadline.value
+              : Math.min(earliestDeadline, deadline.value);
         }
+      }
 
-        const wait = yield* fatal(
-          store.awaitEvent(
-            claim.queue,
-            claim.taskId,
-            claim.runId,
-            deferredCheckpointName(deferredName),
-            deferredEventName(registration.workflow._tag, executionId, deferredName),
-          ),
-        );
-        if (wait.should_suspend) {
-          const racedInterrupt = yield* fatal(
-            store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
-          );
-          if (Option.isSome(racedInterrupt)) {
-            yield* fatal(store.wakeTask(claim.queue, claim.taskId));
-          }
-          return;
-        }
-
-        // The event won the read/register race and committed a checkpoint;
-        // replay immediately so the handler can observe it.
+      const timeoutSeconds =
+        earliestDeadline === undefined
+          ? undefined
+          : Math.max(0, Math.ceil((earliestDeadline - (yield* Clock.currentTimeMillis)) / 1000));
+      const doorbell = yield* makeDoorbell(executionId);
+      const wait = yield* fatal(
+        store.awaitEvent(
+          claim.queue,
+          claim.taskId,
+          claim.runId,
+          doorbell.checkpointName,
+          doorbell.eventName,
+          timeoutSeconds,
+        ),
+      );
+      if (!wait.should_suspend) {
         yield* fatal(store.scheduleRunInSeconds(claim.queue, claim.runId, 0));
         return;
       }
 
-      // `SuspendOnFailure` and explicit suspension have no event to attach
-      // yet. Keep the run replayable without a hot polling loop.
-      yield* fatal(store.scheduleRunInSeconds(claim.queue, claim.runId, SUSPEND_RETRY_SECONDS));
+      // Recheck every durable wake source after registering. Producers write
+      // their durable fact before ringing; this closes both sides of the
+      // check/register race without requiring a scheduler-control primitive.
       const racedInterrupt = yield* fatal(
         store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
       );
       if (Option.isSome(racedInterrupt)) {
-        yield* fatal(store.wakeTask(claim.queue, claim.taskId));
+        yield* fatal(store.emitEvent(claim.queue, doorbell.eventName, null));
+        return;
+      }
+      for (const deferredName of unresolvedDeferreds) {
+        if (yield* deferredAvailable(deferredName)) {
+          yield* fatal(store.emitEvent(claim.queue, doorbell.eventName, null));
+          return;
+        }
       }
     });
 
@@ -530,24 +573,35 @@ const makeServices = (options: LayerOptions) =>
         executionId.value,
       );
 
-      const interruptRequested = yield* fatal(
-        store.checkpointState(config.name, claimed.task_id, INTERRUPT_CHECKPOINT_NAME),
-      );
-
+      // Replay must rebuild the workflow scope before interruption is
+      // applied: checkpointed activities register their compensations while
+      // replaying. The commit-boundary check below then closes that rebuilt
+      // scope with the durable interrupt cause.
       const handler = registration.execute(payload, executionId.value).pipe(
         Effect.onInterrupt(() =>
           Effect.sync(() => {
             // Process shutdown or lease loss is replay, not workflow
             // failure: do not run compensations for infrastructure churn.
-            instance.suspended = true;
+            if (!instance.interrupted) instance.suspended = true;
           }),
         ),
-        Effect.onExit(() => {
-          if (Option.isNone(interruptRequested)) return Effect.void;
-          instance.interrupted = true;
-          instance.suspended = false;
-          return Effect.withFiber((fiber) => fiber.pipe(Fiber.interrupt, Effect.interruptible));
-        }),
+        Effect.onExit(() =>
+          Effect.gen(function* () {
+            // Re-read at the commit boundary as well as on replay. A safe
+            // interrupt cannot preempt arbitrary provider code in another
+            // process, but once requested it must win over a later handler
+            // success instead of being silently committed past.
+            const interruptRequested = yield* fatal(
+              store.checkpointState(config.name, claimed.task_id, INTERRUPT_CHECKPOINT_NAME),
+            );
+            if (Option.isNone(interruptRequested)) return;
+            instance.interrupted = true;
+            instance.suspended = false;
+            return yield* Effect.withFiber((fiber) =>
+              fiber.pipe(Fiber.interrupt, Effect.interruptible),
+            );
+          }),
+        ),
         Workflow.intoResult,
         Effect.provideService(WorkflowEngine.WorkflowEngine, engine),
         Effect.provideService(WorkflowEngine.WorkflowInstance, instance),
@@ -680,25 +734,28 @@ const makeServices = (options: LayerOptions) =>
           Effect.gen(function* () {
             const task = yield* fatal(store.taskByExecutionId(queue, executionId));
             if (Option.isNone(task)) return;
+            if (isTerminalTaskState(task.value.state)) return;
 
-            const wake = yield* fatal(store.wakeTask(queue, task.value.task_id));
-            if (
-              wake.previous_state === "completed" ||
-              wake.previous_state === "failed" ||
-              wake.previous_state === "cancelled"
-            ) {
-              return;
+            const runId = task.value.last_attempt_run;
+            if (runId === null) {
+              return yield* Effect.die(
+                `Active Absurd task for execution "${executionId}" has no run.`,
+              );
             }
 
+            // The marker is the durable interrupt request. The event emitted
+            // afterwards is only a best-effort doorbell; parkSuspended's
+            // post-registration recheck closes the lost-wakeup race.
             yield* fatal(
               store.setCheckpointState(
                 queue,
                 task.value.task_id,
                 INTERRUPT_CHECKPOINT_NAME,
                 true,
-                wake.run_id,
+                runId,
               ),
             );
+            yield* ringCurrentDoorbell(queue, runId);
           }),
         ),
       );
@@ -776,8 +833,8 @@ const makeServices = (options: LayerOptions) =>
       resume: Effect.fnUntraced(function* (workflow, executionId) {
         const queue = queueFor(workflow);
         const task = yield* fatal(store.taskByExecutionId(queue, executionId));
-        if (Option.isSome(task)) {
-          yield* fatal(store.wakeTask(queue, task.value.task_id));
+        if (Option.isSome(task) && task.value.last_attempt_run !== null) {
+          yield* ringCurrentDoorbell(queue, task.value.last_attempt_run);
         }
       }),
 
@@ -788,6 +845,19 @@ const makeServices = (options: LayerOptions) =>
         const stored = yield* fatal(store.checkpointState(claim.queue, claim.taskId, checkpoint));
         if (Option.isSome(stored)) {
           return new Workflow.Complete({ exit: decodeStructuralExit(stored.value) });
+        }
+
+        // Replays must restore earlier checkpointed activities so their
+        // compensation finalizers are registered, but an acknowledged safe
+        // interrupt must not begin a new external mutation.
+        const interruptRequested = yield* fatal(
+          store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
+        );
+        if (Option.isSome(interruptRequested)) {
+          const instance = yield* WorkflowEngine.WorkflowInstance;
+          instance.interrupted = true;
+          instance.suspended = false;
+          return yield* Effect.interrupt;
         }
 
         const activityInstance = WorkflowEngine.WorkflowInstance.initial(
@@ -818,10 +888,23 @@ const makeServices = (options: LayerOptions) =>
 
       deferredResult: Effect.fnUntraced(function* (deferred: DurableDeferred.Any) {
         const claim = yield* requireClaim();
-        const stored = yield* fatal(
-          store.checkpointState(claim.queue, claim.taskId, deferredCheckpointName(deferred.name)),
+        const checkpoint = deferredCheckpointName(deferred.name);
+        const stored = yield* fatal(store.checkpointState(claim.queue, claim.taskId, checkpoint));
+        if (Option.isSome(stored)) return Option.some(decodeStructuralExit(stored.value));
+
+        const instance = yield* WorkflowEngine.WorkflowInstance;
+        const event = yield* fatal(
+          store.eventPayload(
+            claim.queue,
+            deferredEventName(instance.workflow._tag, instance.executionId, deferred.name),
+          ),
         );
-        return Option.map(stored, decodeStructuralExit);
+        if (Option.isNone(event)) return Option.none();
+
+        yield* fatal(
+          store.setCheckpointState(claim.queue, claim.taskId, checkpoint, event.value, claim.runId),
+        );
+        return Option.some(decodeStructuralExit(event.value));
       }),
 
       deferredDone: Effect.fnUntraced(function* (opts) {
@@ -836,6 +919,10 @@ const makeServices = (options: LayerOptions) =>
             encodeStructuralExit(opts.exit as Exit.Exit<unknown, unknown>),
           ),
         );
+        const task = yield* fatal(store.taskByExecutionId(queue, opts.executionId));
+        if (Option.isSome(task) && task.value.last_attempt_run !== null) {
+          yield* ringCurrentDoorbell(queue, task.value.last_attempt_run);
+        }
       }),
 
       scheduleClock: Effect.fnUntraced(function* (workflow, opts) {

@@ -356,19 +356,6 @@ class AbsurdTestClient:
             (queue, run_id, wake_at),
         )
 
-    def wake_task(self, queue, task_id):
-        result = self.conn.execute(
-            """
-            select run_id, previous_state
-              from absurd.wake_task(%s, %s)
-            """,
-            (queue, task_id),
-        )
-        row = result.fetchone()
-        if row is None:
-            raise AssertionError("wake_task returned no rows")
-        return {"run_id": row[0], "previous_state": row[1]}
-
     def fail_run(
         self,
         queue,

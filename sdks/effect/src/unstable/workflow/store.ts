@@ -18,7 +18,7 @@ import * as Schema from "effect/Schema";
  * JSON-safe structures; this module owns serialization to `jsonb` text and
  * returns raw rows. Operational state transitions are performed exclusively
  * through Absurd stored procedures (`spawn_task`, `claim_task`,
- * `complete_run`, `fail_run`, `schedule_run`, `wake_task`,
+ * `complete_run`, `fail_run`, `schedule_run`,
  * `set_task_checkpoint_state`, `get_task_checkpoint_state`, `await_event`,
  * `emit_event`, `cancel_task`, `extend_claim`, `get_task_result`),
  * keeping locking and transition policy in the database layer. Remaining
@@ -43,13 +43,24 @@ const ClaimedRow = Schema.Struct({
 });
 export type ClaimedRow = typeof ClaimedRow.Type;
 
+const TaskState = Schema.Literals([
+  "pending",
+  "running",
+  "sleeping",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export type TaskState = typeof TaskState.Type;
+
 const ExecutionTaskRow = Schema.Struct({
   task_id: Schema.String,
   last_attempt_run: Schema.NullOr(Schema.String),
+  state: TaskState,
 });
 
 const TaskSnapshotRow = Schema.Struct({
-  state: Schema.Literals(["pending", "running", "sleeping", "completed", "failed", "cancelled"]),
+  state: TaskState,
   result: Schema.Unknown,
   failure_reason: Schema.Unknown,
 });
@@ -58,25 +69,15 @@ export type TaskSnapshotRow = typeof TaskSnapshotRow.Type;
 const SpawnedTaskRow = Schema.Struct({ task_id: Schema.String });
 
 const AwaitEventRow = Schema.Struct({ should_suspend: Schema.Boolean });
+const CurrentWaitRow = Schema.Struct({ event_name: Schema.String });
+const EventPayloadRow = Schema.Struct({ payload: Schema.Unknown });
 
 const CheckpointStateRow = Schema.Struct({ state: Schema.Unknown });
 const ExecutionIdRow = Schema.Struct({ idempotency_key: Schema.NullOr(Schema.String) });
 const QueueStorageModeRow = Schema.Struct({
   storage_mode: Schema.Literals(["unpartitioned", "partitioned"]),
 });
-const WakeTaskRow = Schema.Struct({
-  run_id: Schema.String,
-  previous_state: Schema.Literals([
-    "pending",
-    "running",
-    "sleeping",
-    "completed",
-    "failed",
-    "cancelled",
-  ]),
-});
-
-const quoteQueueTable = (prefix: "t_" | "i_", queue: string): string => {
+const quoteQueueTable = (prefix: "t_" | "i_" | "r_" | "e_", queue: string): string => {
   if (!/^[A-Za-z0-9_]+$/.test(queue) || queue.length > 57) {
     throw new Error("Invalid Absurd queue name.");
   }
@@ -129,10 +130,14 @@ interface AbsurdWorkflowStore {
     queue: string,
     taskId: string,
   ) => Effect.Effect<Option.Option<string>, SqlError.SqlError>;
-  readonly wakeTask: (
+  readonly currentWakeEvent: (
     queue: string,
-    taskId: string,
-  ) => Effect.Effect<typeof WakeTaskRow.Type, SqlError.SqlError>;
+    runId: string,
+  ) => Effect.Effect<Option.Option<string>, SqlError.SqlError>;
+  readonly eventPayload: (
+    queue: string,
+    eventName: string,
+  ) => Effect.Effect<Option.Option<unknown>, SqlError.SqlError>;
   readonly claimTask: (
     queue: string,
     workerId: string,
@@ -164,6 +169,7 @@ interface AbsurdWorkflowStore {
     runId: string,
     checkpointName: string,
     eventName: string,
+    timeoutSeconds?: number,
   ) => Effect.Effect<typeof AwaitEventRow.Type, SqlError.SqlError>;
   readonly emitEvent: (
     queue: string,
@@ -216,13 +222,15 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
       const idempotencyTable = quoteQueueTable("i_", queue);
       const query =
         storageMode.storage_mode === "partitioned"
-          ? "select t.task_id, t.last_attempt_run " +
+          ? "select t.task_id, t.last_attempt_run, t.state " +
             "from " +
             idempotencyTable +
             " i join " +
             taskTable +
             " t on t.task_id = i.task_id where i.idempotency_key = $1"
-          : "select task_id, last_attempt_run from " + taskTable + " where idempotency_key = $1";
+          : "select task_id, last_attempt_run, state from " +
+            taskTable +
+            " where idempotency_key = $1";
       return yield* optionalRow(ExecutionTaskRow, sql.unsafe(query, [executionId]));
     }),
 
@@ -235,11 +243,27 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
       ),
     ).pipe(Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.idempotency_key)))),
 
-  wakeTask: (queue, taskId) =>
-    requiredRow(
-      WakeTaskRow,
-      sql.unsafe("select run_id, previous_state from absurd.wake_task($1, $2)", [queue, taskId]),
-    ),
+  currentWakeEvent: (queue, runId) =>
+    optionalRow(
+      CurrentWaitRow,
+      sql.unsafe(
+        "select wake_event as event_name from " +
+          quoteQueueTable("r_", queue) +
+          " where run_id = $1 and state = 'sleeping' and wake_event is not null",
+        [runId],
+      ),
+    ).pipe(Effect.map(Option.map((row) => row.event_name))),
+
+  eventPayload: (queue, eventName) =>
+    optionalRow(
+      EventPayloadRow,
+      sql.unsafe(
+        "select payload from " +
+          quoteQueueTable("e_", queue) +
+          " where event_name = $1 and payload is not null",
+        [eventName],
+      ),
+    ).pipe(Effect.map(Option.map((row) => row.payload))),
 
   claimTask: (queue, workerId, claimTimeoutSeconds) =>
     optionalRow(
@@ -272,15 +296,16 @@ export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowSto
       ),
     ),
 
-  awaitEvent: (queue, taskId, runId, checkpointName, eventName) =>
+  awaitEvent: (queue, taskId, runId, checkpointName, eventName, timeoutSeconds) =>
     requiredRow(
       AwaitEventRow,
-      sql.unsafe(`select should_suspend from absurd.await_event($1, $2, $3, $4, $5)`, [
+      sql.unsafe(`select should_suspend from absurd.await_event($1, $2, $3, $4, $5, $6)`, [
         queue,
         taskId,
         runId,
         checkpointName,
         eventName,
+        timeoutSeconds ?? null,
       ]),
     ),
 
