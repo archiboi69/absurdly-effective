@@ -46,7 +46,7 @@ class ConformanceProbe extends Context.Service<
     readonly increment: (key: string) => void;
     readonly count: (key: string) => number;
   }
->()("absurd-effect/test/workflow-conformance.test/ConformanceProbe") {}
+>()("absurd-effect/test/AbsurdWorkflowEngine.test/ConformanceProbe") {}
 
 const ConformanceProbeLayer = Layer.sync(ConformanceProbe, () => {
   const counts = new Map<string, number>();
@@ -1022,6 +1022,51 @@ describe("AbsurdWorkflowEngine conformance", () => {
 
       expect(result).toBe(`parent:child:${payload.id}:raced`);
     }),
+  );
+
+  it.live("recognizes the original persisted interruption marker", () =>
+    withRuntime((context) =>
+      Effect.gen(function* () {
+        const payload = { id: randomName("persisted-interrupt") };
+        const executionId = yield* ChildWorkflow.executionId(payload);
+        yield* ChildWorkflow.execute(payload, { discard: true }).pipe(
+          Effect.provideContext(context),
+        );
+        yield* awaitSuspension(ChildWorkflow, executionId, context);
+
+        const task = yield* Effect.promise(() =>
+          pool.query<{ task_id: string; last_attempt_run: string }>(
+            `SELECT task_id, last_attempt_run
+               FROM absurd.t_${childQueue}
+              WHERE idempotency_key = $1`,
+            [executionId],
+          ),
+        ).pipe(Effect.map((result) => result.rows[0]));
+        if (task === undefined) return yield* Effect.die("spawned workflow task disappeared");
+
+        // Compatibility fixture: the literal is data written by an older
+        // worker. Do not replace it with the current persistence export.
+        const interruptState = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Boolean))(
+          true,
+        );
+        yield* Effect.promise(() =>
+          pool.query(
+            `SELECT absurd.set_task_checkpoint_state(
+               $1, $2, '$effect:interrupt', $3::jsonb, $4
+             )`,
+            [childQueue, task.task_id, interruptState, task.last_attempt_run],
+          ),
+        );
+        yield* ChildWorkflow.resume(executionId).pipe(Effect.provideContext(context));
+
+        const exit = yield* ChildWorkflow.execute(payload).pipe(
+          Effect.provideContext(context),
+          Effect.timeout(Duration.seconds(10)),
+          Effect.exit,
+        );
+        expect(Exit.hasInterrupts(exit)).toBe(true);
+      }),
+    ),
   );
 
   it.live("propagates safe parent interruption to a suspended child", () =>

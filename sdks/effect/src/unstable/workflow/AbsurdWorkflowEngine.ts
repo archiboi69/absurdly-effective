@@ -41,14 +41,8 @@ import {
   type ClaimedRow,
   type TaskSnapshotRow,
   type TaskState,
-} from "./store.ts";
-import {
-  decodeStructuralExit,
-  encodeStructuralExit,
-  exitWithNullishValues,
-  type WorkflowPersistenceCodecs,
-  workflowPersistenceCodecs,
-} from "./persistence.ts";
+} from "./Store.ts";
+import * as WorkflowPersistence from "./Persistence.ts";
 
 // The upstream `WorkflowEngine.Encoded` contract mandates `object`/`unknown`
 // at its persistence seam (payloads, checkpoints, exits), and Effect's own
@@ -84,7 +78,7 @@ interface ActiveClaim {
    */
   readonly runId: string;
   /** Child executions observed while replaying this parent run. */
-  readonly awaitedChildren: Map<string, ExecutionReference>;
+  readonly awaitedChildren: Map<string, WorkflowPersistence.ExecutionReference>;
   /** Workflow-level deferreds that returned pending during this replay. */
   readonly pendingDeferreds: Set<string>;
   /** Root instance; activity bodies receive a distinct awaited-deferred set. */
@@ -100,7 +94,7 @@ interface ActiveClaim {
  * claimed queue/task/run triple without rereading mutable ownership columns.
  */
 class ClaimContext extends Context.Service<ClaimContext, ActiveClaim>()(
-  "absurd-effect/unstable/workflow/engine/ClaimContext",
+  "absurd-effect/unstable/workflow/AbsurdWorkflowEngine/ClaimContext",
 ) {}
 
 const MAX_QUEUE_NAME_LENGTH = 57;
@@ -205,13 +199,13 @@ class ExecutionStatusService extends Context.Service<
       executionId: string,
     ) => Effect.Effect<AbsurdWorkflowExecutionStatus<unknown, unknown>>;
   }
->()("absurd-effect/unstable/workflow/engine/ExecutionStatusService") {}
+>()("absurd-effect/unstable/workflow/AbsurdWorkflowEngine/ExecutionStatusService") {}
 
 interface Registration {
   readonly workflow: Workflow.Any;
   readonly queue: string;
   /** Persistence codecs derived once from the workflow's own schemas. */
-  readonly codecs: WorkflowPersistenceCodecs;
+  readonly codecs: WorkflowPersistence.Codecs;
   /** Registration-time context; provides schema encoding/decoding services. */
   readonly services: Context.Context<never>;
   readonly execute: (
@@ -236,37 +230,11 @@ const validateQueueName = (queueName: string): string => {
   return queueName;
 };
 
-const activityCheckpointName = (name: string, attempt: number): string =>
-  `$activity:${name}:${attempt}`;
-const deferredCheckpointName = (name: string): string => `$defer:${name}`;
-const clockDeadlineCheckpointName = (deferredName: string): string => `$clock:${deferredName}`;
-// Reserved and written exclusively by this adapter's interrupt transaction.
-const INTERRUPT_CHECKPOINT_NAME = "$effect:interrupt";
-// Reserved inside Absurd task headers for Effect's child-to-parent link.
-const PARENT_EXECUTION_HEADER = "$effect:parent";
-const ExecutionReference = Schema.Struct({
-  queue: Schema.String,
-  executionId: Schema.String,
-});
-type ExecutionReference = typeof ExecutionReference.Type;
-const WorkflowHeaders = Schema.NullOr(
-  Schema.Struct({
-    [PARENT_EXECUTION_HEADER]: Schema.optionalKey(ExecutionReference),
-  }),
-);
 const makeDoorbell = (executionId: string) =>
   Effect.map(Effect.all([Random.nextInt, Random.nextInt]), ([high, low]) => {
     const id = `${high.toString(36)}:${low.toString(36)}`;
-    return {
-      checkpointName: `$effect:wake:${id}`,
-      eventName: `absurd-effect:wake:${executionId}:${id}`,
-    };
+    return WorkflowPersistence.doorbellNames(executionId, id);
   });
-const deferredEventName = (
-  workflowTag: string,
-  executionId: string,
-  deferredName: string,
-): string => `absurd-effect:deferred:${workflowTag}:${executionId}:${deferredName}`;
 
 const isTerminalTaskState = (state: TaskState): boolean =>
   state === "completed" || state === "failed" || state === "cancelled";
@@ -347,7 +315,7 @@ const makeServices = (options: LayerOptions) =>
 
     const workerId = `absurd-effect:${os.hostname?.() ?? "host"}:${process.pid}`;
     const registrations = new Map<string, Registration>();
-    const codecCache = new Map<string, WorkflowPersistenceCodecs>();
+    const codecCache = new Map<string, WorkflowPersistence.Codecs>();
 
     const queueFor = (workflow: Workflow.Any): string => {
       const annotation = Context.getOption(workflow.annotations, QueueAnnotation);
@@ -364,10 +332,10 @@ const makeServices = (options: LayerOptions) =>
       return annotation.value;
     };
 
-    const codecsFor = (workflow: Workflow.Any): WorkflowPersistenceCodecs => {
+    const codecsFor = (workflow: Workflow.Any): WorkflowPersistence.Codecs => {
       const cached = codecCache.get(workflow._tag);
       if (cached !== undefined) return cached;
-      const codecs = workflowPersistenceCodecs(workflow);
+      const codecs = WorkflowPersistence.makeCodecs(workflow);
       codecCache.set(workflow._tag, codecs);
       return codecs;
     };
@@ -496,7 +464,7 @@ const makeServices = (options: LayerOptions) =>
     });
 
     const ringExecutionDoorbell = Effect.fnUntraced(function* (
-      execution: ExecutionReference,
+      execution: WorkflowPersistence.ExecutionReference,
     ): Effect.fn.Return<void> {
       const task = yield* fatal(store.taskByExecutionId(execution.queue, execution.executionId));
       if (Option.isSome(task) && task.value.last_attempt_run !== null) {
@@ -504,35 +472,33 @@ const makeServices = (options: LayerOptions) =>
       }
     });
 
-    const parentFromHeaders = Effect.fnUntraced(function* (
-      headers: unknown,
-    ): Effect.fn.Return<Option.Option<ExecutionReference>> {
-      const decoded = yield* Schema.decodeUnknownEffect(WorkflowHeaders)(headers).pipe(
-        Effect.orDie,
-      );
-      if (decoded === null) return Option.none();
-      return Option.fromNullishOr(decoded[PARENT_EXECUTION_HEADER]);
-    });
-
     const deferredAvailable = Effect.fnUntraced(function* (
       claim: ActiveClaim,
       deferredName: string,
     ): Effect.fn.Return<boolean> {
       const checkpoint = yield* fatal(
-        store.checkpointState(claim.queue, claim.taskId, deferredCheckpointName(deferredName)),
+        store.checkpointState(
+          claim.queue,
+          claim.taskId,
+          WorkflowPersistence.deferredCheckpointName(deferredName),
+        ),
       );
       if (Option.isSome(checkpoint)) return true;
       const event = yield* fatal(
         store.eventPayload(
           claim.queue,
-          deferredEventName(claim.instance.workflow._tag, claim.instance.executionId, deferredName),
+          WorkflowPersistence.deferredEventName(
+            claim.instance.workflow._tag,
+            claim.instance.executionId,
+            deferredName,
+          ),
         ),
       );
       return Option.isSome(event);
     });
 
     const childIsTerminal = Effect.fnUntraced(function* (
-      child: ExecutionReference,
+      child: WorkflowPersistence.ExecutionReference,
     ): Effect.fn.Return<boolean> {
       const task = yield* fatal(store.taskByExecutionId(child.queue, child.executionId));
       return Option.isSome(task) && isTerminalTaskState(task.value.state);
@@ -549,7 +515,7 @@ const makeServices = (options: LayerOptions) =>
           store.checkpointState(
             claim.queue,
             claim.taskId,
-            clockDeadlineCheckpointName(deferredName),
+            WorkflowPersistence.clockDeadlineCheckpointName(deferredName),
           ),
         );
         if (
@@ -574,7 +540,11 @@ const makeServices = (options: LayerOptions) =>
 
     const parkSuspended = Effect.fnUntraced(function* (claim: ActiveClaim): Effect.fn.Return<void> {
       const interruptRequested = yield* fatal(
-        store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
+        store.checkpointState(
+          claim.queue,
+          claim.taskId,
+          WorkflowPersistence.interruptCheckpointName,
+        ),
       );
       if (Option.isSome(interruptRequested)) {
         yield* fatal(store.scheduleRunInSeconds(claim.queue, claim.runId, 0));
@@ -598,7 +568,7 @@ const makeServices = (options: LayerOptions) =>
           store.checkpointState(
             claim.queue,
             claim.taskId,
-            clockDeadlineCheckpointName(deferredName),
+            WorkflowPersistence.clockDeadlineCheckpointName(deferredName),
           ),
         );
         if (Option.isSome(deadline) && typeof deadline.value === "number") {
@@ -638,7 +608,11 @@ const makeServices = (options: LayerOptions) =>
       // their durable fact before ringing; this closes both sides of the
       // check/register race without requiring a scheduler-control primitive.
       const racedInterrupt = yield* fatal(
-        store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
+        store.checkpointState(
+          claim.queue,
+          claim.taskId,
+          WorkflowPersistence.interruptCheckpointName,
+        ),
       );
       if (Option.isSome(racedInterrupt)) {
         yield* fatal(store.emitEvent(claim.queue, doorbell.eventName, null));
@@ -711,7 +685,11 @@ const makeServices = (options: LayerOptions) =>
             // process, but once requested it must win over a later handler
             // success instead of being silently committed past.
             const interruptRequested = yield* fatal(
-              store.checkpointState(config.name, claimed.task_id, INTERRUPT_CHECKPOINT_NAME),
+              store.checkpointState(
+                config.name,
+                claimed.task_id,
+                WorkflowPersistence.interruptCheckpointName,
+              ),
             );
             if (Option.isNone(interruptRequested)) return;
             instance.interrupted = true;
@@ -754,7 +732,9 @@ const makeServices = (options: LayerOptions) =>
           Schema.encodeEffect(registration.codecs.result)(outcome),
           registration.services,
         );
-        const parent = yield* parentFromHeaders(claimed.headers);
+        const parent = yield* WorkflowPersistence.decodeParentExecution(claimed.headers).pipe(
+          Effect.orDie,
+        );
         yield* Effect.orDie(
           sql.withTransaction(
             Effect.gen(function* () {
@@ -893,7 +873,7 @@ const makeServices = (options: LayerOptions) =>
               store.setCheckpointState(
                 queue,
                 task.value.task_id,
-                INTERRUPT_CHECKPOINT_NAME,
+                WorkflowPersistence.interruptCheckpointName,
                 true,
                 runId,
               ),
@@ -936,7 +916,7 @@ const makeServices = (options: LayerOptions) =>
               : ({
                   queue: queueFor(opts.parent.workflow),
                   executionId: opts.parent.executionId,
-                } satisfies ExecutionReference);
+                } satisfies WorkflowPersistence.ExecutionReference);
           const storedPayload = yield* runCodec(
             Schema.encodeEffect(codecsFor(workflow).payload)(opts.payload),
           );
@@ -950,7 +930,7 @@ const makeServices = (options: LayerOptions) =>
               ? commonSpawnOptions
               : {
                   ...commonSpawnOptions,
-                  headers: { [PARENT_EXECUTION_HEADER]: parent },
+                  headers: WorkflowPersistence.parentExecutionHeaders(parent),
                 };
           // SAFETY: workflow payload schemas are structs, so their encoded
           // persistence representation is an object.
@@ -960,7 +940,10 @@ const makeServices = (options: LayerOptions) =>
           if (parent !== undefined) {
             const parentClaim = yield* Effect.serviceOption(ClaimContext);
             if (Option.isSome(parentClaim)) {
-              const child = { queue, executionId: opts.executionId } satisfies ExecutionReference;
+              const child = {
+                queue,
+                executionId: opts.executionId,
+              } satisfies WorkflowPersistence.ExecutionReference;
               parentClaim.value.awaitedChildren.set(`${queue}:${opts.executionId}`, child);
             }
           }
@@ -1006,17 +989,23 @@ const makeServices = (options: LayerOptions) =>
       activityExecute: Effect.fnUntraced(function* (activity: Activity.Any, attempt: number) {
         const parent = yield* WorkflowEngine.WorkflowInstance;
         const claim = yield* requireClaim();
-        const checkpoint = activityCheckpointName(activity.name, attempt);
+        const checkpoint = WorkflowPersistence.activityCheckpointName(activity.name, attempt);
         const stored = yield* fatal(store.checkpointState(claim.queue, claim.taskId, checkpoint));
         if (Option.isSome(stored)) {
-          return new Workflow.Complete({ exit: decodeStructuralExit(stored.value) });
+          return new Workflow.Complete({
+            exit: WorkflowPersistence.decodeStructuralExit(stored.value),
+          });
         }
 
         // Replays must restore earlier checkpointed activities so their
         // compensation finalizers are registered, but an acknowledged safe
         // interrupt must not begin a new external mutation.
         const interruptRequested = yield* fatal(
-          store.checkpointState(claim.queue, claim.taskId, INTERRUPT_CHECKPOINT_NAME),
+          store.checkpointState(
+            claim.queue,
+            claim.taskId,
+            WorkflowPersistence.interruptCheckpointName,
+          ),
         );
         if (Option.isSome(interruptRequested)) {
           const instance = yield* WorkflowEngine.WorkflowInstance;
@@ -1044,28 +1033,34 @@ const makeServices = (options: LayerOptions) =>
             claim.queue,
             claim.taskId,
             checkpoint,
-            encodeStructuralExit(result.exit),
+            WorkflowPersistence.encodeStructuralExit(result.exit),
             claim.runId,
           ),
         );
-        return new Workflow.Complete({ exit: exitWithNullishValues(result.exit) });
+        return new Workflow.Complete({
+          exit: WorkflowPersistence.exitWithNullishValues(result.exit),
+        });
       }),
 
       deferredResult: Effect.fnUntraced(function* (deferred: DurableDeferred.Any) {
         const claim = yield* requireClaim();
         const instance = yield* WorkflowEngine.WorkflowInstance;
         const isWorkflowLevel = instance.awaitedDeferreds === claim.instance.awaitedDeferreds;
-        const checkpoint = deferredCheckpointName(deferred.name);
+        const checkpoint = WorkflowPersistence.deferredCheckpointName(deferred.name);
         const stored = yield* fatal(store.checkpointState(claim.queue, claim.taskId, checkpoint));
         if (Option.isSome(stored)) {
           if (isWorkflowLevel) claim.pendingDeferreds.delete(deferred.name);
-          return Option.some(decodeStructuralExit(stored.value));
+          return Option.some(WorkflowPersistence.decodeStructuralExit(stored.value));
         }
 
         const event = yield* fatal(
           store.eventPayload(
             claim.queue,
-            deferredEventName(instance.workflow._tag, instance.executionId, deferred.name),
+            WorkflowPersistence.deferredEventName(
+              instance.workflow._tag,
+              instance.executionId,
+              deferred.name,
+            ),
           ),
         );
         if (Option.isNone(event)) {
@@ -1077,7 +1072,7 @@ const makeServices = (options: LayerOptions) =>
           store.setCheckpointState(claim.queue, claim.taskId, checkpoint, event.value, claim.runId),
         );
         if (isWorkflowLevel) claim.pendingDeferreds.delete(deferred.name);
-        return Option.some(decodeStructuralExit(event.value));
+        return Option.some(WorkflowPersistence.decodeStructuralExit(event.value));
       }),
 
       deferredDone: Effect.fnUntraced(function* (opts) {
@@ -1088,8 +1083,12 @@ const makeServices = (options: LayerOptions) =>
         yield* fatal(
           store.emitEvent(
             queue,
-            deferredEventName(opts.workflowName, opts.executionId, opts.deferredName),
-            encodeStructuralExit(opts.exit as Exit.Exit<unknown, unknown>),
+            WorkflowPersistence.deferredEventName(
+              opts.workflowName,
+              opts.executionId,
+              opts.deferredName,
+            ),
+            WorkflowPersistence.encodeStructuralExit(opts.exit as Exit.Exit<unknown, unknown>),
           ),
         );
         const task = yield* fatal(store.taskByExecutionId(queue, opts.executionId));
@@ -1101,7 +1100,7 @@ const makeServices = (options: LayerOptions) =>
       scheduleClock: Effect.fnUntraced(function* (workflow, opts) {
         const claim = yield* requireClaim();
         const deferredName = opts.clock.deferred.name;
-        const deadlineCheckpoint = clockDeadlineCheckpointName(deferredName);
+        const deadlineCheckpoint = WorkflowPersistence.clockDeadlineCheckpointName(deferredName);
         const existing = yield* fatal(
           store.checkpointState(claim.queue, claim.taskId, deadlineCheckpoint),
         );
@@ -1124,12 +1123,12 @@ const makeServices = (options: LayerOptions) =>
         }
         if (now < deadline) return;
 
-        const completion = encodeStructuralExit(Exit.succeed(null));
+        const completion = WorkflowPersistence.encodeStructuralExit(Exit.succeed(null));
         yield* fatal(
           store.setCheckpointState(
             claim.queue,
             claim.taskId,
-            deferredCheckpointName(deferredName),
+            WorkflowPersistence.deferredCheckpointName(deferredName),
             completion,
             claim.runId,
           ),
@@ -1137,7 +1136,7 @@ const makeServices = (options: LayerOptions) =>
         yield* fatal(
           store.emitEvent(
             claim.queue,
-            deferredEventName(workflow._tag, opts.executionId, deferredName),
+            WorkflowPersistence.deferredEventName(workflow._tag, opts.executionId, deferredName),
             completion,
           ),
         );
