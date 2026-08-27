@@ -1,8 +1,9 @@
 /**
  * Idiomatic Effect v4 `WorkflowEngine` adapter backed by Absurd queues.
  *
- * `AbsurdWorkflowEngine.inQueue` annotates an Effect `Workflow` with the
- * physical Absurd queue it runs on, and `AbsurdWorkflowEngine.layer` provides
+ * `AbsurdWorkflowEngine.Queue` annotates an Effect `Workflow` with the physical
+ * Absurd queue it runs on; `AbsurdWorkflowEngine.inQueue` is its validated
+ * convenience form. `AbsurdWorkflowEngine.layer` provides
  * `WorkflowEngine.WorkflowEngine` from a generic `effect/unstable/sql`
  * `SqlClient`. Definitions, execution, polling, handler registration,
  * activities, and durable deferreds remain Effect-owned; Absurd persists the
@@ -57,13 +58,15 @@ import * as WorkflowPersistence from "./Persistence.ts";
 // oxlint-disable effecttsgo/any-unknown-in-error-context
 
 /**
- * Annotation key holding the Absurd queue a workflow is bound to via
- * `AbsurdWorkflowEngine.inQueue`.
+ * Annotation holding the physical Absurd queue for a workflow.
+ *
+ * Use directly with `Workflow.annotate`, or use
+ * `AbsurdWorkflowEngine.inQueue` for validated convenience.
  */
-class QueueAnnotation extends Context.Reference<string>(
-  "absurd-effect/unstable/workflow/QueueAnnotation",
+const Queue = Context.Reference<string>(
+  "absurd-effect/unstable/workflow/AbsurdWorkflowEngine/Queue",
   { defaultValue: () => "" },
-) {}
+);
 
 interface ActiveClaim {
   readonly queue: string;
@@ -255,7 +258,7 @@ const inQueue =
     // SAFETY: Effect's erased `Workflow.Any` omits `annotate`, while every
     // concrete workflow value has it and annotation preserves the exact W.
     return (workflow as unknown as Workflow.Workflow<string, never, never, never>).annotate(
-      QueueAnnotation,
+      Queue,
       queueName,
     ) as unknown as W;
   };
@@ -318,10 +321,10 @@ const makeServices = (options: LayerOptions) =>
     const codecCache = new Map<string, WorkflowPersistence.Codecs>();
 
     const queueFor = (workflow: Workflow.Any): string => {
-      const annotation = Context.getOption(workflow.annotations, QueueAnnotation);
+      const annotation = Context.getOption(workflow.annotations, Queue);
       if (Option.isNone(annotation) || annotation.value === "") {
         throw new Error(
-          `Workflow "${workflow._tag}" has no Absurd queue annotation; wrap it with AbsurdWorkflowEngine.inQueue.`,
+          `Workflow "${workflow._tag}" has no Absurd queue annotation; annotate it with AbsurdWorkflowEngine.Queue or use AbsurdWorkflowEngine.inQueue.`,
         );
       }
       if (!queueConfigByName.has(annotation.value)) {
@@ -1189,6 +1192,7 @@ const layer = (
 
 /** Effect-native durable workflow-engine adapter backed by Absurd. */
 export const AbsurdWorkflowEngine = {
+  Queue,
   inQueue,
   executionStatus,
   make,

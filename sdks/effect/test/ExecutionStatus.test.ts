@@ -49,14 +49,12 @@ const RawStateWorkflow = AbsurdWorkflowEngine.inQueue(statusOnlyQueue)(
   }),
 );
 
-const EnsureWorkflow = AbsurdWorkflowEngine.inQueue(ensureOnlyQueue)(
-  Workflow.make("sdk-int/EnsureOnly", {
-    payload: { id: Schema.String },
-    success: Schema.String,
-    error: Schema.Never,
-    idempotencyKey: ({ id }) => id,
-  }),
-);
+const EnsureWorkflow = Workflow.make("sdk-int/EnsureOnly", {
+  payload: { id: Schema.String },
+  success: Schema.String,
+  error: Schema.Never,
+  idempotencyKey: ({ id }) => id,
+}).annotate(AbsurdWorkflowEngine.Queue, ensureOnlyQueue);
 
 const UnknownWorkflow = AbsurdWorkflowEngine.inQueue(queue)(
   Workflow.make("sdk-int/UnknownExternalWorkflow", {
@@ -113,6 +111,18 @@ describe("AbsurdWorkflowEngine execution status", () => {
       ),
     ),
   );
+
+  it("uses one queue annotation for direct and convenience forms", () => {
+    const WorkflowDefinition = Workflow.make("sdk-int/Queue", {
+      payload: { id: Schema.String },
+      idempotencyKey: ({ id }) => id,
+    });
+    const annotated = WorkflowDefinition.annotate(AbsurdWorkflowEngine.Queue, queue);
+    const convenient = AbsurdWorkflowEngine.inQueue(queue)(WorkflowDefinition);
+
+    expect(Context.get(annotated.annotations, AbsurdWorkflowEngine.Queue)).toBe(queue);
+    expect(Context.get(convenient.annotations, AbsurdWorkflowEngine.Queue)).toBe(queue);
+  });
 
   it.live("ensures a pending execution and distinguishes it from NotFound", () =>
     withRuntime((context) =>

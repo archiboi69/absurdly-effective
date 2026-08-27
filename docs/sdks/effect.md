@@ -1,260 +1,571 @@
 # Effect SDK
 
-`absurd-effect` is the native Effect SDK for Absurd. It gives Effect applications
-durable tasks and an implementation of Effect's `WorkflowEngine`, while Absurd
-keeps the durability machinery in Postgres.
+Build durable Effect programs with Postgres and one `absurd.sql` file.
 
-The important part is what you do **not** need: no scheduler service, Redis,
-coordinator, or Effect-specific database schema. Absurd's queues, claims,
-checkpoints, sleeps, events, and retries are installed from one `absurd.sql`
-file. The SDK is the typed Effect interface to that existing SQL contract.
+The SDK gives you two ways to work:
 
-This SDK is maintained in this repository and targets Absurd deliberately; it
-is not part of Effect itself and does not introduce a second persistence model.
-Application code gets Schemas, Effects, services, scoped Layers, and Effect's
-workflow API. Postgres remains the durable runtime.
+| Start with | Choose it when |
+| --- | --- |
+| `Task` and `Step` | You need a background job, webhook, provider call, or fan-out worker |
+| Effect `Workflow` | The business program sleeps, waits for signals, runs children, or compensates |
 
-## One SQL contract, multiple SDKs
+Most applications should start with `Task`. Add a workflow when the business
+logic—not merely the worker process—spans time.
 
-`absurd-effect` mirrors Absurd's `0.x` release version. For example,
-`absurd-effect@0.5.x` targets the Absurd SQL `0.5.x` contract and interoperates
-with the TypeScript and Python `absurd-sdk@0.5.x` packages.
+Both APIs use stock Absurd queues. You do not need Redis, a scheduler service,
+a coordinator, or an Effect-only database schema.
 
-That means an existing Absurd database does not become an Effect-only
-deployment. Version-matched SDKs can use the same schema, queues, task names,
-JSON payloads, idempotency keys, and operational tooling. An Effect worker can
-consume work produced by a TypeScript or Python service, and non-Effect workers
-can continue alongside it. Upgrade the SQL contract and SDKs together within
-the same release line.
+> **Warning:** Absurd and this SDK are early experiments and should not yet be
+> used in production.
 
-The two Effect surfaces serve different shapes of work:
+New here? Follow [your first durable task](#tutorial-your-first-durable-task).
+If you already know you need sleeps, signals, or compensation, jump to
+[your first Effect workflow](#tutorial-your-first-effect-workflow).
 
-- Use the primary `Task` and `Step` API for background jobs and mutation fan-out.
-- Use `absurd-effect/unstable/workflow` when business logic spans time and needs
-  Effect-native durable clocks, deferreds, interruption, typed outcomes, or
-  compensation.
+## Before you start
+
+Install the Effect SDK:
 
 ```bash
-npm install absurd-effect effect
+npm install absurd-effect effect @effect/platform-node
 ```
 
-Install the single Absurd SQL contract as described in
-[Database Setup and Migrations](../database.md), then create the queues used by
-your application.
+Then:
 
-## Durable tasks
+1. Install the Absurd SQL contract by following
+   [Database Setup and Migrations](../database.md).
+2. Create the queues used by your application.
+3. Set `DATABASE_URL`.
+
+Keep `absurd-effect` and the Absurd SQL contract on the same `0.x` release. For
+example, `absurd-effect@0.5.x` targets Absurd SQL `0.5.x`.
+
+## Tutorial: your first durable task
+
+We will create an email task, run a worker, enqueue the task, and inspect its
+result.
+
+### Step 1: define the task
 
 ```typescript
-import { Config, Effect, Layer, Schema } from "effect";
-import { Absurd, Step, Task, Worker } from "absurd-effect";
-import { rebuildProjection } from "./projections.js";
+import { Schema } from "effect";
+import { Task } from "absurd-effect";
 
-const RebuildProjection = Task.make("rebuild-projection", {
-  queue: "projections",
-  payload: { accountId: Schema.String },
-  success: Schema.Struct({ rows: Schema.Number }),
-  idempotencyKey: ({ accountId }) => accountId,
+export const SendEmail = Task.make("send-email", {
+  queue: "email",
+  payload: {
+    emailId: Schema.String,
+    to: Schema.String,
+    subject: Schema.String,
+  },
+  success: Schema.Struct({ messageId: Schema.String }),
+  idempotencyKey: ({ emailId }) => emailId,
 });
+```
 
-const RebuildProjectionHandler = RebuildProjection.handler(
-  Effect.fn("RebuildProjection.handler")(function* ({ accountId }) {
-    return yield* Step.make({
-      name: "projection/rebuild",
-      success: Schema.Struct({ rows: Schema.Number }),
-      execute: rebuildProjection(accountId),
-    });
+That one value is the task's wire contract:
+
+- `"send-email"` is the stable task name.
+- `queue` selects the physical Absurd queue.
+- `payload` is validated before enqueue and after claim.
+- `success` is encoded by the worker and decoded when inspected.
+- `idempotencyKey` prevents duplicate logical work.
+
+Keep task names and payload schemas compatible after deployment. Other SDKs
+can enqueue the same task name and JSON payload.
+
+### Step 2: write the handler
+
+```typescript
+import { Effect } from "effect";
+import { SendEmail } from "./SendEmail.js";
+
+export const SendEmailHandler = SendEmail.handler(
+  Effect.fn("SendEmail.handler")(function* ({ to, subject }) {
+    yield* Effect.logInfo(`Sending "${subject}" to ${to}`);
+    return { messageId: crypto.randomUUID() };
   }),
 );
+```
 
-const AbsurdLayer = Absurd.layerConfig({
+The handler is an ordinary `Effect`:
+
+- typed errors stay in its error channel;
+- required services stay visible in the Layer type;
+- the return value must match the task's success Schema.
+
+### Step 3: build the worker Layer
+
+```typescript
+import { NodeRuntime } from "@effect/platform-node";
+import { Config, Layer } from "effect";
+import { Absurd, Worker } from "absurd-effect";
+import { SendEmailHandler } from "./SendEmailHandler.js";
+
+export const DatabaseLayer = Absurd.layerConfig({
   url: Config.redacted("DATABASE_URL"),
 });
 
-export const WorkerLayer = Worker.layer({
-  handlers: [RebuildProjectionHandler],
+const WorkerLayer = Worker.layer({
+  handlers: [SendEmailHandler],
+  concurrency: 10,
   pollInterval: "250 millis",
-}).pipe(Layer.provide(AbsurdLayer));
+}).pipe(Layer.provide(DatabaseLayer));
+
+Layer.launch(WorkerLayer).pipe(NodeRuntime.runMain);
 ```
 
-The task definition owns its queue and payload/result encoding. `Worker.layer`
-derives the required queues from its handlers, starts one scoped worker per
-queue, and closes them with the Layer's Scope. Payload construction input is
-accepted directly, including for `Schema.Class`; successful tasks default to
-`Schema.Void` when no result Schema is declared.
+`Worker.layer` discovers its queues from the handlers. It starts scoped polling
+fibers and closes them with the Layer's Scope. There is no separate Absurd
+worker bootstrap.
 
-Producer programs provide the same `AbsurdLayer` Layer around
-`RebuildProjection.enqueue(...)` or `RebuildProjection.status(...)`. Persisted
-task IDs can be safely rehydrated with the definition's `idSchema`.
+Using Bun? Replace `NodeRuntime` with `BunRuntime`; the Layers do not change.
 
-`Step.make` stores only successful results and rehydrates them through its Schema
-after a retry. `CurrentTask.id` supplies the stable identifier used for logs,
-application persistence, and provider idempotency.
+### Step 4: enqueue the task
 
-For unit tests, `TestTaskStore.layer({ handlers })` executes the same definitions
-and handlers in memory and retains successful step checkpoints across explicit
-reruns. PostgreSQL integration tests remain the authority for claims, automatic
-retries, leases, concurrency, and database behavior.
+```typescript
+const taskId = yield* SendEmail.enqueue({
+  emailId: "email-123",
+  to: "person@example.com",
+  subject: "Your invoice",
+});
+```
 
-## Effect-native WorkflowEngine
+Provide `DatabaseLayer` to this producer program just like any other Effect
+infrastructure Layer.
 
-`AbsurdWorkflowEngine` implements Effect's public `WorkflowEngine` service using
-stock Absurd primitives. Your domain defines ordinary Effect `Workflow` values;
-the runtime supplies the Absurd-backed engine as a Layer. Workflow definitions,
-handlers, Activities, durable clocks, deferreds, typed outcomes, interruption,
-and compensation therefore remain Effect-native.
+The returned task ID is branded by the task name. Store it if the application
+will inspect or reconcile the task later.
 
-Define a workflow in domain code, bind it to a physical Absurd queue at the
-runtime edge, and provide the engine to its handler Layer:
+### Step 5: inspect the result
+
+```typescript
+const status = yield* SendEmail.status(taskId);
+
+switch (status._tag) {
+  case "Completed":
+    console.log(status.value.messageId);
+    break;
+  case "Failed":
+    console.error(status.failure);
+    break;
+}
+```
+
+`Task.status` is a snapshot, not a waiter. It returns one of:
+
+```text
+NotFound | Pending | Running | Sleeping | Completed | Failed | Cancelled
+```
+
+Compose repeated inspection, schedules, and timeouts with normal Effect
+operators when you need to wait.
+
+`Failed.failure` is operational JSON from Absurd, not a typed Effect error. The
+SQL contract does not preserve the original TypeScript error type.
+
+If a task ID came from application storage, restore its task-name brand before
+using it:
+
+```typescript
+const taskId = yield* Schema.decodeEffect(SendEmail.idSchema)(storedTaskId);
+const status = yield* SendEmail.status(taskId);
+```
+
+### What just happened?
+
+```text
+Task.make       -> typed wire contract
+Task.handler    -> ordinary Effect handler
+Absurd.layer    -> Postgres-backed task service
+Worker.layer    -> scoped queue workers
+Task.enqueue    -> durable task ID
+Task.status     -> typed result snapshot
+```
+
+That is the complete background-task model. Continue only when you need one of
+the capabilities below.
+
+## Add a durable step when retries must not repeat work
+
+Suppose the provider accepted an email, but the worker died before completing
+the task. Absurd will retry the task. Wrap the external mutation in `Step.make`
+so the retry can restore its successful result. Here, `mailer.send` represents
+an Effect-based provider client:
+
+```typescript
+import { Effect, Schema } from "effect";
+import { CurrentTask, Step } from "absurd-effect";
+
+export const SendEmailHandler = SendEmail.handler(
+  Effect.fn("SendEmail.handler")(function* ({ to, subject }) {
+    const task = yield* CurrentTask;
+
+    return yield* Step.make({
+      name: "provider/send-email",
+      success: Schema.Struct({ messageId: Schema.String }),
+      execute: mailer.send({
+        to,
+        subject,
+        idempotencyKey: `${task.id}:provider/send-email`,
+      }),
+    });
+  }),
+);
+```
+
+Once the step succeeds, Absurd stores its Schema-encoded result. A later task
+run returns that result without executing the provider call again.
+
+Two rules matter:
+
+1. Keep step names stable after deployment; they are durable checkpoint names.
+2. Use `CurrentTask.id` as the provider idempotency key whenever possible.
+
+A checkpoint narrows the duplicate-work window, but it cannot make a remote
+provider call and a Postgres write atomic. Provider idempotency closes that
+last gap.
+
+## Add Effect services normally
+
+Handlers can require any Effect service. Provide those services to the worker
+Layer:
+
+```typescript
+const WorkerLayer = Worker.layer({
+  handlers: [SendEmailHandler],
+}).pipe(
+  Layer.provide(DatabaseLayer),
+  Layer.provide(MailerLayer),
+);
+```
+
+`Worker.layer` supplies only task-local services such as `CurrentTask` and the
+step executor. Your domain dependencies remain explicit.
+
+## Test the same task without Postgres
+
+Use `TestTaskStore` for fast handler and checkpoint tests:
+
+```typescript
+import { assert, expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import { TestTaskStore } from "absurd-effect";
+import { SendEmail } from "./SendEmail.js";
+import { SendEmailHandler } from "./SendEmailHandler.js";
+
+const TestLayer = TestTaskStore.layer({
+  handlers: [SendEmailHandler],
+});
+
+it.effect("sends an email", () =>
+  Effect.gen(function* () {
+    const taskId = yield* SendEmail.enqueue({
+      emailId: "email-123",
+      to: "person@example.com",
+      subject: "Your invoice",
+    });
+
+    const status = yield* SendEmail.status(taskId);
+    assert(status._tag === "Completed");
+    expect(status.value.messageId).toBeDefined();
+  }).pipe(Effect.provide(TestLayer)),
+);
+```
+
+`TestTaskStore` uses the same definitions, handlers, and Schemas. It also keeps
+successful step checkpoints across explicit reruns.
+
+Use PostgreSQL integration tests for database claims, leases, automatic
+retries, concurrency, and SQL compatibility.
+
+## Tutorial: your first Effect workflow
+
+Choose a workflow when the program itself must survive sleeps, signals,
+children, or compensation. The API is Effect's native `Workflow`; Absurd only
+provides its `WorkflowEngine`.
+
+Install the PostgreSQL client if your application does not already use it:
+
+```bash
+npm install @effect/sql-pg pg
+```
+
+### Step 1: define and route the workflow
+
+```typescript
+import { AbsurdWorkflowEngine } from "absurd-effect/unstable/workflow";
+import { Schema } from "effect";
+import { Workflow } from "effect/unstable/workflow";
+
+export const IssueInvoice = Workflow.make("Finance/IssueInvoice", {
+  payload: { invoiceId: Schema.String },
+  success: Schema.String,
+  idempotencyKey: ({ invoiceId }) => invoiceId,
+}).annotate(AbsurdWorkflowEngine.Queue, "finance");
+```
+
+`AbsurdWorkflowEngine.Queue` is a typed Effect annotation. It maps this
+workflow to the physical `finance` queue.
+
+If you prefer a helper, `inQueue` writes the same annotation and validates the
+queue name immediately:
+
+```typescript
+const IssueInvoice = AbsurdWorkflowEngine.inQueue("finance")(
+  Workflow.make("Finance/IssueInvoice", {
+    payload: { invoiceId: Schema.String },
+    success: Schema.String,
+    idempotencyKey: ({ invoiceId }) => invoiceId,
+  }),
+);
+```
+
+There is one routing mechanism; choose the syntax that reads best.
+
+### Step 2: write the workflow handler
+
+```typescript
+import { Effect } from "effect";
+
+export const IssueInvoiceLayer = IssueInvoice.toLayer(
+  Effect.fn("IssueInvoice.handler")(function* ({ invoiceId }, executionId) {
+    yield* Effect.logInfo("Issuing invoice", { invoiceId, executionId });
+    return `issued:${invoiceId}`;
+  }),
+);
+```
+
+`Workflow.toLayer` is native Effect. There is no Absurd-specific handler type.
+
+### Step 3: provide the engine
 
 ```typescript
 import { PgClient } from "@effect/sql-pg";
-import { AbsurdWorkflowEngine } from "absurd-effect/unstable/workflow";
-import { Effect, Layer, Redacted, Schema } from "effect";
-import { Workflow } from "effect/unstable/workflow";
+import { Config, Layer } from "effect";
 
-const IssueInvoice = Workflow.make("Finance/IssueInvoice", {
-  payload: { invoiceId: Schema.String },
-  success: Schema.Void,
-  idempotencyKey: ({ invoiceId }) => invoiceId,
+const DatabaseLayer = PgClient.layerConfig({
+  url: Config.redacted("DATABASE_URL"),
 });
 
-const FinanceIssueInvoice = AbsurdWorkflowEngine.inQueue("finance")(IssueInvoice);
+const EngineLayer = AbsurdWorkflowEngine.layer({
+  queues: { finance: { concurrency: 4 } },
+}).pipe(Layer.provide(DatabaseLayer));
 
-const WorkflowLayer = FinanceIssueInvoice.toLayer(
-  Effect.fn("FinanceIssueInvoice.handler")(function* ({ invoiceId }, executionId) {
-    yield* Effect.logInfo("Issuing invoice", { invoiceId, executionId });
-  }),
-);
-
-const RuntimeLayer = WorkflowLayer.pipe(
-  Layer.provideMerge(
-    AbsurdWorkflowEngine.layer({
-      queues: { finance: { concurrency: 4 } },
-    }),
-  ),
-  Layer.provide(
-    PgClient.layer({
-      url: Redacted.make(process.env.DATABASE_URL ?? "postgresql://localhost/absurd"),
-    }),
-  ),
+export const WorkerLayer = IssueInvoiceLayer.pipe(
+  Layer.provide(EngineLayer),
 );
 ```
 
-The Layer provides Effect's ordinary `WorkflowEngine.WorkflowEngine` service.
-The workflow itself does not know that Absurd is underneath it, so application
-code keeps using established Effect APIs rather than an Absurd-flavored copy of
-the workflow abstraction.
-
-### Mental model: workflow, engine, execution, task, and run
-
-A `Workflow` is a reusable definition: its stable name, payload and result
-Schemas, typed error, and idempotency-key function. `AbsurdWorkflowEngine` is
-the runtime service that makes executions of that definition durable.
-
-Effect derives the stable execution ID from the workflow name and the business
-key returned by its idempotency-key function. One definition can therefore have
-many logical executions:
+The whole worker is ordinary Layer composition:
 
 ```text
-Finance/IssueInvoice + invoice-123 -> execution A
-Finance/IssueInvoice + invoice-456 -> execution B
+PgClient.layerConfig          -> SqlClient
+AbsurdWorkflowEngine.layer    -> WorkflowEngine
+Workflow.toLayer              -> registered handler
+Layer.provide                 -> runnable worker Layer
 ```
 
-Repeating `invoice-123` resolves to execution A instead of creating another
-logical execution. Absurd then supplies the physical task and run records that
-carry out that execution:
+Launch `WorkerLayer` with the Node, Bun, or application runtime you already
+use. The Layer's Scope owns the Postgres resources and polling fibers.
+
+### Step 4: execute the workflow
+
+To start the execution and wait for its typed result:
+
+```typescript
+const result = yield* IssueInvoice.execute({
+  invoiceId: "invoice-123",
+});
+```
+
+`Workflow.execute` is lazy like every Effect value. Nothing happens until the
+Effect is yielded or run.
+
+### Add more workflows
+
+Merge handler Layers, then provide one shared engine:
+
+```typescript
+const WorkflowHandlersLayer = Layer.mergeAll(
+  IssueInvoiceLayer,
+  ReconcilePaymentLayer,
+  SendReceiptLayer,
+);
+
+export const WorkerLayer = WorkflowHandlersLayer.pipe(
+  Layer.provide(EngineLayer),
+);
+```
+
+## Start now, inspect later
+
+Sometimes an HTTP request or dispatcher should start work without waiting for
+the result. Use Effect's native `discard` option:
+
+```typescript
+const executionId = yield* IssueInvoice.execute(
+  { invoiceId: "invoice-123" },
+  { discard: true },
+);
+```
+
+`discard` means “discard the result at this call site.” It does not delete or
+cancel the result. The workflow continues durably, and the returned execution
+ID is its stable application handle.
+
+Later, poll it:
+
+```typescript
+const result = yield* IssueInvoice.poll(executionId);
+```
+
+Repeating `execute(payload, { discard: true })` is also the recommended
+“ensure execution exists, then inspect it” pattern. It returns the same
+deterministic execution ID and repairs a missing backing task without creating
+a second logical execution.
+
+## Understand `poll` and operational status
+
+`Workflow.poll` is the portable Effect API. It returns Effect workflow results,
+not Absurd task states:
+
+| Absurd state | `Workflow.poll` |
+| --- | --- |
+| Missing, pending, or running | `None` |
+| Sleeping | `Some(Workflow.Suspended)` |
+| Completed successfully | `Some(Complete(Exit.Success))` |
+| Completed with a typed workflow failure | `Some(Complete(Exit.Failure))` |
+| Backing task failed or cancelled | Defects |
+
+A typed business failure is a completed workflow result. A failed Absurd task
+means infrastructure or protocol execution exhausted its attempts.
+
+Operational tools can ask the Absurd engine for its richer storage view without
+defecting:
+
+```typescript
+const status = yield* AbsurdWorkflowEngine.executionStatus(
+  IssueInvoice,
+  executionId,
+);
+```
+
+The result is:
+
+```text
+NotFound | Pending | Running | Sleeping
+| Completed { exit } | Failed { failure } | Cancelled
+```
+
+Use `Workflow.poll` in portable application logic. Use `executionStatus` in
+reconciliation, support, and operational tooling.
+
+## Understand workflow identity
+
+You can use the SDK without knowing Absurd's internal IDs. Persist only the
+execution ID returned by Effect.
+
+When you need the deeper model, it is:
 
 | Identity | Meaning | Lifetime |
 | --- | --- | --- |
 | Workflow name | Reusable Effect program and wire contract | Constant |
 | Execution ID | One logical workflow invocation | Stable for that invocation |
-| Task ID | Absurd task currently backing the execution | May change during repair or migration |
+| Task ID | Physical Absurd task backing the execution | Storage detail |
 | Run ID | One claim or infrastructure attempt | Changes on retry or reclaim |
 | Checkpoint | Persisted Activity, clock, deferred, or step result | Reused during replay |
 
-The engine stores Effect's execution ID as Absurd's idempotency key. Effect's
-`poll`, `resume`, and `interrupt` APIs therefore use the stable execution ID;
-Absurd task and run UUIDs remain operational details. Run IDs change so a stale
-worker cannot commit after losing its claim.
-
-Conceptually, the relationship is:
+Effect derives the execution ID from the workflow name and business
+idempotency key:
 
 ```text
-Workflow definition
-  -> WorkflowEngine service selected by the runtime
-    -> stable execution ID
-      -> Absurd task
-        -> one or more runs
-          -> durable checkpoints and event waits in Postgres
+Finance/IssueInvoice + invoice-123 -> stable execution ID
 ```
 
-On replay, the workflow runs again, but completed durable operations are
-restored from checkpoints. Activities can register compensations, durable clocks
-become timed Absurd event waits, and durable deferreds use Absurd's cached events
-so completing a deferred before its waiter starts is not a lost wake-up.
+The engine stores that execution ID as Absurd's idempotency key. Absurd task and
+run UUIDs stay internal. `poll`, `resume`, and `interrupt` all use the Effect
+execution ID.
 
-### Start, wait, or inspect
+## Durable workflow behavior
 
-`Workflow.execute` is lazy like every Effect value. Once yielded, its default
-form starts or attaches to the durable execution and waits for its typed result:
+### Activities and retries
+
+Typed workflow failures are terminal outcomes. Put business and provider
+retries around the fallible `Activity`. Use a `DurableClock` when the retry
+delay itself must survive worker restarts.
+
+Absurd's backing-task retry policy has a narrower job: recover from
+infrastructure-level execution failures.
+
+### Safe interruption and compensation
 
 ```typescript
-const result = yield* FinanceIssueInvoice.execute(payload);
+yield* IssueInvoice.interrupt(executionId);
 ```
 
-To start or ensure an execution without waiting for its result, use Effect's
-upstream discard option and retain the returned execution ID:
+Safe interruption is durable and cooperative. The engine records the request,
+wakes a sleeping execution, replays through Effect, and runs registered
+compensations. Repeated interruption and interruption of a terminal execution
+are no-ops.
+
+The wake event is only a scheduler doorbell. The durable interruption marker is
+the source of truth, so an event emitted before or during wait registration is
+not a lost wakeup.
+
+An operation already running in another process cannot be remotely killed.
+Model indefinitely blocking work as bounded or retryable Activities. The
+engine rechecks interruption before committing workflow success.
+
+### Clocks, deferreds, and child workflows
+
+Durable clocks become timed Absurd event waits. Durable deferreds use cached
+events, so a signal arriving before its waiter is retained. Child workflow
+links are persisted so parents can resume after process replacement and safe
+interruption can propagate.
+
+These are standard Effect workflow APIs; the adapter adds no parallel versions.
+
+## Use the same Absurd deployment from other SDKs
+
+The task API interoperates directly through task name, JSON payload, and
+idempotency key.
+
+A workflow adds one Effect concept: the stable execution ID. A TypeScript or
+Python producer that already has this ID can spawn the workflow task with the
+execution ID as Absurd's idempotency key:
 
 ```typescript
-const executionId = yield* FinanceIssueInvoice.execute(payload, { discard: true });
-const result = yield* FinanceIssueInvoice.poll(executionId);
+await app.spawn("Finance/IssueInvoice", payload, {
+  idempotencyKey: executionId,
+});
 ```
 
-`discard` means “discard the result at this call site.” It does not delete the
-result or make the workflow ephemeral. The execution continues durably, and the
-returned ID is the handle to persist for later polling, resumption, or
-interruption. Repeating the call also repairs a missing backing task without
-creating a second logical execution.
+Persist the execution ID, not the backing task UUID.
 
-Effect's portable `Workflow.poll` contract intentionally treats “not found” and
-“not finished” alike. Absurd-specific operational tooling can ask the engine for
-the richer storage state:
+Version-matched Effect, TypeScript, and Python SDKs can share the same Absurd
+schema, queues, task names, and operational tooling. Upgrade the SQL contract
+and SDKs together within the same release line.
 
-```typescript
-const status = yield* AbsurdWorkflowEngine.executionStatus(
-  FinanceIssueInvoice,
-  executionId,
-);
-// NotFound | Pending | Running | Sleeping
-// Completed { exit } | Failed { failure } | Cancelled
-```
+Unknown workflow names are deferred so rolling deployments remain safe.
+Externally spawned workflow tasks without an execution ID exhaust Absurd's
+bounded infrastructure retry policy and become visible as protocol failures.
 
-`Completed.exit` contains the Schema-decoded typed workflow outcome. `Failed`
-means the backing Absurd task failed at the infrastructure or protocol level,
-not that the workflow returned a typed business failure.
+## API at a glance
 
-### Interruption and retries
+### Durable tasks
 
-`Workflow.interrupt(executionId)` is durable and cooperative. The adapter
-persists the interruption request before waking an event wait, and replay runs
-registered compensations. Repeated interruption and interruption of a terminal
-execution are no-ops. The wake event is only a scheduler doorbell; the durable
-interruption marker remains the source of truth.
+- `Task.make`, `Task.enqueue`, `Task.status`, and `Task.handler`
+- `Absurd.layer`, `Absurd.layerConfig`, and `Absurd.layerPool`
+- `Worker.layer({ handlers })`
+- `CurrentTask` for stable task metadata
+- `Step.make` for durable success checkpoints
+- `TestTaskStore.layer({ handlers })`
 
-Typed workflow failures are terminal outcomes. Put business retries around the
-fallible `Activity`, using `DurableClock` when retry delays must survive worker
-restarts. Absurd's task retry policy protects infrastructure-level execution.
+### Effect workflows
 
-### Interoperability for workflows
-
-The ordinary task API interoperates directly through task name, JSON payload,
-and idempotency key. A workflow execution adds one Effect concept: its stable
-execution ID. Once that ID is known, a TypeScript or Python producer can spawn
-the same workflow task using the execution ID as Absurd's idempotency key.
-Persist the execution ID in application data; do not expose the backing Absurd
-task or run UUID as the workflow handle.
-
-See the package
-[README](https://github.com/earendil-works/absurd/tree/main/sdks/effect)
-for the complete task API, workflow identity model, interruption semantics,
-testing patterns, and retry ownership.
+- `AbsurdWorkflowEngine.Queue` and `AbsurdWorkflowEngine.inQueue`
+- `AbsurdWorkflowEngine.layer` and `AbsurdWorkflowEngine.make`
+- `AbsurdWorkflowEngine.executionStatus`
+- Native `Workflow.execute`, `poll`, `resume`, `interrupt`, and `toLayer`
+- Native Activities, durable clocks, deferreds, children, and compensation
