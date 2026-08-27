@@ -12,6 +12,11 @@ Durable Effect programs, backed by Postgres and one `absurd.sql` file.
 Both use stock Absurd queues. There is no Redis, scheduler service, or
 Effect-only database schema.
 
+The runtime stays inside the Effect and PostgreSQL stack you already use.
+`absurdly-effective` depends only on Effect's official PostgreSQL integration
+and peers on `effect`; it adds no broker client, scheduler, coordinator, or
+SDK-specific runtime service.
+
 New here? Follow [Your first durable task](#your-first-durable-task). If you
 already know you need sleeps, signals, or compensation, jump to
 [Need a durable workflow?](#need-a-durable-workflow).

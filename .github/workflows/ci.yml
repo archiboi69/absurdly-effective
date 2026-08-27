@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  effect-sdk:
+    name: Effect SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@v1.18.0
+        with:
+          node-version: "24"
+          cache: true
+
+      - name: Install dependencies
+        run: vp install
+
+      - name: Check formatting
+        run: vp fmt --check
+
+      - name: Lint and type-check
+        run: make check
+
+      - name: Test against stock Absurd
+        run: make test
+
+      - name: Build npm package
+        run: make build
+
+      - name: Pack npm package
+        run: make pack

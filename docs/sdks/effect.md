@@ -2,6 +2,11 @@
 
 Build durable Effect programs with Postgres and one `absurd.sql` file.
 
+The runtime stays inside the Effect and PostgreSQL stack you already use.
+`absurdly-effective` depends only on Effect's official PostgreSQL integration
+and peers on `effect`; it adds no broker client, scheduler, coordinator, or
+SDK-specific runtime service.
+
 The SDK gives you two ways to work:
 
 | Start with | Choose it when |

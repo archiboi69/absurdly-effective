@@ -81,11 +81,7 @@ export default defineConfig({
       "vite-plus/prefer-vite-plus-imports": "error",
       ...Object.fromEntries(antiSlopRuleNames.map((rule): [string, "error"] => [rule, "error"])),
     },
-    ignorePatterns: [
-      "**/dist/**",
-      ...outsideWorkspace,
-      ...agentTooling,
-    ],
+    ignorePatterns: ["**/dist/**", ...outsideWorkspace, ...agentTooling],
     options: { typeAware: true, typeCheck: true },
     overrides: [
       {

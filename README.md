@@ -9,6 +9,8 @@
 > [`absurdly-effective`](sdks/effect), the Effect-native SDK for stock Absurd.
 > The original Absurd project and its TypeScript and Python SDKs remain
 > upstream-owned; only the Effect package is published from this repository.
+> Its runtime stays inside the Effect and PostgreSQL stack: no broker client,
+> scheduler, coordinator, or SDK-specific service is added.
 
 Absurd is the simplest durable execution workflow system you can think of.
 It's entirely based on Postgres and nothing else.  It's almost as easy to use as
