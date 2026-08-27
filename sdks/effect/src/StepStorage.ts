@@ -1,4 +1,3 @@
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -7,9 +6,9 @@ import {
   StepDecodeError,
   StepEncodeError,
   type Options,
-  type StepError,
   type StepPersistenceError,
 } from "./Step.ts";
+import type { currentTaskStep } from "./CurrentTask.ts";
 
 // Stored step values cross an untyped JSON boundary owned by the success Schema.
 // oxlint-disable anti-slop/no-unknown-parameters
@@ -21,20 +20,7 @@ export interface StoredStep {
 
 export type BeginStep = (name: string) => Effect.Effect<StoredStep, StepPersistenceError>;
 
-export type Executor = <Success extends Schema.Top, Error, Requirements>(
-  options: Options<Success, Error, Requirements>,
-) => Effect.Effect<
-  Success["Type"],
-  Error | StepError,
-  Requirements | Success["EncodingServices"] | Success["DecodingServices"]
->;
-
-/** @internal Task-local durable step implementation. */
-export class StepExecutor extends Context.Service<StepExecutor, Executor>()(
-  "absurdly-effective/StepExecutor",
-) {}
-
-export const fromStorage = (begin: BeginStep): Executor =>
+export const fromStorage = (begin: BeginStep): ReturnType<typeof currentTaskStep> =>
   Effect.fn("Step.make")(function* <Success extends Schema.Top, Error, Requirements>(
     options: Options<Success, Error, Requirements>,
   ) {

@@ -246,6 +246,12 @@ export const SendEmailHandler = SendEmail.handler(
 Once the step succeeds, Absurd stores its Schema-encoded result. A later task
 run returns that result without executing the provider call again.
 
+In Absurd's promise SDK, one `TaskContext` object carries both task metadata and
+the `step` method. The Effect SDK separates those capabilities: `CurrentTask`
+exposes the current task's stable `id` and `headers`, while `Step.make` performs
+the durable checkpoint. `Worker.layer` provides them together. Application code
+does not construct or pass a checkpoint implementation.
+
 Two rules matter:
 
 1. Keep step names stable after deployment; they are durable checkpoint names.
@@ -269,8 +275,8 @@ const WorkerLayer = Worker.layer({
 );
 ```
 
-`Worker.layer` supplies only task-local services such as `CurrentTask` and the
-step executor. Your domain dependencies remain explicit.
+`Worker.layer` supplies `CurrentTask` and makes `Step.make` durable
+automatically. Your domain dependencies remain explicit.
 
 ## Tutorial: your first Effect workflow
 
@@ -553,6 +559,7 @@ bounded infrastructure retry policy and become visible as protocol failures.
 - `Worker.layer({ handlers })`
 - `CurrentTask` for stable task metadata
 - `Step.make` for durable success checkpoints
+- `TestCurrentTask.make` for focused tests of task-local effects
 - `TestTaskStore.layer({ handlers })`
 
 ### Effect workflows
@@ -565,7 +572,27 @@ bounded infrastructure retry policy and become visible as protocol failures.
 
 ## Test the same task without Postgres
 
-Use `TestTaskStore` for fast handler and checkpoint tests:
+For a focused test of an Effect that calls `Step.make`, provide a test current
+task:
+
+```typescript
+import { Effect } from "effect";
+import { TestCurrentTask } from "absurdly-effective";
+
+const task = TestCurrentTask.make();
+
+const program = Effect.gen(function* () {
+  const first = yield* task.run(issueInvoice);
+  const replayed = yield* task.run(issueInvoice);
+  return { first, replayed };
+});
+```
+
+Both calls share successful checkpoints, so the second call exercises replay.
+Typed failures remain on the Effect error channel.
+
+Use `TestTaskStore` when testing the complete handler, Task definition, and
+status boundary:
 
 ```typescript
 import { assert, expect, it } from "@effect/vitest";
@@ -596,6 +623,6 @@ it.effect("sends an email", () =>
 `TestTaskStore` uses the same definitions, handlers, and Schemas. It also keeps
 successful step checkpoints across explicit reruns.
 
-Use `TestTaskStore` for fast domain and checkpoint tests. Use PostgreSQL
-integration tests for database claims, leases, automatic retries, concurrency,
-and SQL compatibility.
+Use `TestCurrentTask` for focused domain effects and `TestTaskStore` for task
+handlers. Use PostgreSQL integration tests for database claims, leases,
+automatic retries, concurrency, and SQL compatibility.

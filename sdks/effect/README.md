@@ -190,6 +190,12 @@ After the step succeeds, its Schema-encoded result is stored in Postgres. A
 task retry restores that result instead of calling the provider again. Keep
 step names stable after deployment.
 
+Absurd's promise SDK puts task metadata and `step` on one `TaskContext` object.
+The Effect SDK separates them: `CurrentTask` exposes the stable task `id` and
+`headers`, while `Step.make` performs the durable checkpoint. `Worker.layer`
+provides both capabilities; application code does not construct or pass a
+checkpoint implementation.
+
 A checkpoint cannot make the provider call and Postgres write atomic. Use the
 stable `CurrentTask.id` as the provider idempotency key whenever the provider
 supports one.

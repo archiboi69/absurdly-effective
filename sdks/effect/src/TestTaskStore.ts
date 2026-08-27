@@ -5,8 +5,8 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
-import { CurrentTask } from "./CurrentTask.ts";
-import { fromStorage, type BeginStep, StepExecutor } from "./StepExecutor.ts";
+import { CurrentTask, currentTaskFromRuntime } from "./CurrentTask.ts";
+import { fromStorage, type BeginStep } from "./StepStorage.ts";
 import type { AnyHandler, HandlerRequirements, RoutedSpawnOptions } from "./Task.ts";
 import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts";
 
@@ -34,19 +34,6 @@ interface MutableEntry {
   status: StoredTaskStatus;
 }
 
-export class TestTaskStore extends Context.Service<
-  TestTaskStore,
-  {
-    readonly entries: Effect.Effect<ReadonlyArray<Entry>>;
-    readonly rerun: (taskId: string) => Effect.Effect<void, TaskStoreError>;
-    readonly clear: Effect.Effect<void>;
-  }
->()("absurdly-effective/TestTaskStore") {
-  static readonly layer = <const Handlers extends ReadonlyArray<AnyHandler>>(options: {
-    readonly handlers: Handlers;
-  }) => makeLayer(options.handlers);
-}
-
 const makeBeginStep = (entry: MutableEntry): BeginStep => {
   const counts = new Map<string, number>();
   return (name) =>
@@ -66,6 +53,19 @@ const makeBeginStep = (entry: MutableEntry): BeginStep => {
     });
 };
 
+export class TestTaskStore extends Context.Service<
+  TestTaskStore,
+  {
+    readonly entries: Effect.Effect<ReadonlyArray<Entry>>;
+    readonly rerun: (taskId: string) => Effect.Effect<void, TaskStoreError>;
+    readonly clear: Effect.Effect<void>;
+  }
+>()("absurdly-effective/TestTaskStore") {
+  static readonly layer = <const Handlers extends ReadonlyArray<AnyHandler>>(options: {
+    readonly handlers: Handlers;
+  }) => makeLayer(options.handlers);
+}
+
 const snapshot = (entry: MutableEntry): Entry => ({
   id: entry.id,
   name: entry.name,
@@ -76,7 +76,7 @@ const snapshot = (entry: MutableEntry): Entry => ({
 
 type Requirements<Handlers extends ReadonlyArray<AnyHandler>> = Exclude<
   HandlerRequirements<Handlers[number]>,
-  CurrentTask | StepExecutor | TaskStore
+  CurrentTask | TaskStore
 >;
 
 const makeLayer = <const Handlers extends ReadonlyArray<AnyHandler>>(
@@ -98,13 +98,13 @@ const makeLayer = <const Handlers extends ReadonlyArray<AnyHandler>>(
         const handler = byName.get(`${entry.options.queue}:${entry.name}`);
         if (handler === undefined) return;
         entry.status = { _tag: "Running" };
-        const current = CurrentTask.of({
+        const current = currentTaskFromRuntime({
           id: entry.id,
           headers: entry.options.headers ?? {},
+          executeStep: fromStorage(makeBeginStep(entry)),
         });
         const exit = yield* handler.execute(entry.payload).pipe(
           Effect.provideService(CurrentTask, current),
-          Effect.provideService(StepExecutor, fromStorage(makeBeginStep(entry))),
           Effect.provideService(TaskStore, store),
           // SAFETY: the test Layer captures the same handler requirements as
           // the production Worker Layer after its dependencies are provided.

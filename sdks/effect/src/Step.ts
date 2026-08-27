@@ -1,7 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-
-import { type Executor, StepExecutor } from "./StepExecutor.ts";
+import { CurrentTask, currentTaskStep } from "./CurrentTask.ts";
 
 export class StepEncodeError extends Schema.TaggedError<StepEncodeError>()("StepEncodeError", {
   stepName: Schema.String,
@@ -35,7 +34,7 @@ export type Make = <Success extends Schema.Top, Error, Requirements>(
 ) => Effect.Effect<
   Success["Type"],
   Error | StepError,
-  StepExecutor | Requirements | Success["EncodingServices"] | Success["DecodingServices"]
+  CurrentTask | Requirements | Success["EncodingServices"] | Success["DecodingServices"]
 >;
 
 export const make: Make = Effect.fn("Step.make")(function* <
@@ -43,9 +42,6 @@ export const make: Make = Effect.fn("Step.make")(function* <
   Error,
   Requirements,
 >(options: Options<Success, Error, Requirements>) {
-  const execute = yield* StepExecutor;
+  const execute = currentTaskStep(yield* CurrentTask);
   return yield* execute(options);
 });
-
-/** @internal Captures the task-local executor when adapting Step to a domain port. */
-export const capture: Effect.Effect<Executor, never, StepExecutor> = StepExecutor;

@@ -6,9 +6,9 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { Absurd, type Registration, type TaskContext } from "./Absurd.ts";
-import { CurrentTask } from "./CurrentTask.ts";
+import { CurrentTask, currentTaskFromRuntime } from "./CurrentTask.ts";
 import { StepPersistenceError } from "./Step.ts";
-import { fromStorage, type BeginStep, StepExecutor } from "./StepExecutor.ts";
+import { fromStorage, type BeginStep } from "./StepStorage.ts";
 import type { AnyHandler, HandlerRequirements } from "./Task.ts";
 import { TaskStore } from "./TaskStore.ts";
 
@@ -65,8 +65,14 @@ const executeHandler = (
   store: TaskStore["Service"],
 ): Effect.Effect<Exit.Exit<unknown, unknown>> =>
   handler.execute(payload).pipe(
-    Effect.provideService(CurrentTask, { id: context.id, headers: context.headers }),
-    Effect.provideService(StepExecutor, fromStorage(beginStep(context))),
+    Effect.provideService(
+      CurrentTask,
+      currentTaskFromRuntime({
+        id: context.id,
+        headers: context.headers,
+        executeStep: fromStorage(beginStep(context)),
+      }),
+    ),
     Effect.provideService(TaskStore, store),
     // SAFETY: Worker.layer captures every remaining handler requirement after
     // its input Layers have been provided.
@@ -76,7 +82,7 @@ const executeHandler = (
 
 type Requirements<Handlers extends ReadonlyArray<AnyHandler>> = Exclude<
   HandlerRequirements<Handlers[number]>,
-  CurrentTask | StepExecutor | TaskStore
+  CurrentTask | TaskStore
 >;
 
 export const layer = <const Handlers extends ReadonlyArray<AnyHandler>>(
