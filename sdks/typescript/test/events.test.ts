@@ -91,17 +91,23 @@ describe("Event system", () => {
     const eventRows = await ctx.pool.query<{
       payload: unknown;
       emitted_at: Date;
-    }>(`SELECT payload, emitted_at FROM absurd.e_${ctx.queueName} WHERE event_name = $1`, [
-      eventName,
-    ]);
+    }>(
+      `SELECT payload, emitted_at FROM absurd.e_${ctx.queueName} WHERE event_name = $1`,
+      [eventName],
+    );
     expect(eventRows.rows).toHaveLength(1);
     expect(eventRows.rows[0].payload).toEqual(firstPayload);
-    expect(new Date(eventRows.rows[0].emitted_at).getTime()).toBe(firstEmitAt.getTime());
+    expect(new Date(eventRows.rows[0].emitted_at).getTime()).toBe(
+      firstEmitAt.getTime(),
+    );
 
-    absurd.registerTask({ name: "late-first-write-waiter" }, async (_params, ctx) => {
-      const received = await ctx.awaitEvent(eventName);
-      return { received };
-    });
+    absurd.registerTask(
+      { name: "late-first-write-waiter" },
+      async (_params, ctx) => {
+        const received = await ctx.awaitEvent(eventName);
+        return { received };
+      },
+    );
 
     const { taskID } = await absurd.spawn("late-first-write-waiter", undefined);
     await absurd.workBatch("worker1", 60, 1);
@@ -166,10 +172,13 @@ describe("Event system", () => {
   test("multiple tasks can await the same event", async () => {
     const eventName = randomName("broadcast_event");
 
-    absurd.registerTask<{ taskNum: number }>({ name: "multi-waiter" }, async (params, ctx) => {
-      const payload = await ctx.awaitEvent(eventName);
-      return { taskNum: params.taskNum, received: payload };
-    });
+    absurd.registerTask<{ taskNum: number }>(
+      { name: "multi-waiter" },
+      async (params, ctx) => {
+        const payload = await ctx.awaitEvent(eventName);
+        return { taskNum: params.taskNum, received: payload };
+      },
+    );
 
     const tasks = await Promise.all([
       absurd.spawn("multi-waiter", { taskNum: 1 }),

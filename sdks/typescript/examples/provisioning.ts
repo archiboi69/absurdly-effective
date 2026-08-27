@@ -255,7 +255,9 @@ function registerTasks(absurd: Absurd) {
     async (params, ctx: TaskContext) => {
       const delay = await ctx.step("activation-delay", async () => {
         const range = Math.max(params.maxDelay - params.minDelay, 0);
-        const delay = params.minDelay + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
+        const delay =
+          params.minDelay +
+          (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
         log("activation", "user will eventually activate", {
           customerId: params.customerId,
           delay,
@@ -356,11 +358,14 @@ async function main() {
   });
 
   // Generate all task parameters upfront
-  const taskParams: ProvisionCustomerParams[] = Array.from({ length: 12 }, () => ({
-    customerId: crypto.randomUUID(),
-    email: `${crypto.randomUUID()}@example.com`,
-    plan: Math.random() > 0.5 ? "pro" : "basic",
-  }));
+  const taskParams: ProvisionCustomerParams[] = Array.from(
+    { length: 12 },
+    () => ({
+      customerId: crypto.randomUUID(),
+      email: `${crypto.randomUUID()}@example.com`,
+      plan: Math.random() > 0.5 ? "pro" : "basic",
+    }),
+  );
 
   // Enqueue sequentially; worker concurrency controls processing parallelism.
   for (const params of taskParams) {

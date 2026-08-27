@@ -31,7 +31,7 @@ export type Executor = <Success extends Schema.Top, Error, Requirements>(
 
 /** @internal Task-local durable step implementation. */
 export class StepExecutor extends Context.Service<StepExecutor, Executor>()(
-  "absurd-effect/StepExecutor",
+  "absurdly-effective/StepExecutor",
 ) {}
 
 export const fromStorage = (begin: BeginStep): Executor =>

@@ -11,17 +11,18 @@ const effectRules = Object.fromEntries(
     .map((rule): [string, "error"] => [rule, "error"]),
 ) as NonNullable<typeof correctness.rules>;
 
-// Only the JS/TS workspace packages are linted/formatted; everything else
-// (vendored references, Python, Go, docs) is out of scope for Vite+.
+// Only the Effect product and this workspace's own tooling are linted and
+// formatted. The rest of the Absurd fork stays available as upstream source
+// and conformance infrastructure, not as code maintained by this workspace.
 const outsideWorkspace = [
   ".context/**",
   ".github/**",
   ".pi/**",
   "docs/**",
-  "habitat/cmd/**",
-  "habitat/internal/**",
-  "habitat/scripts/**",
+  "habitat/**",
   "scripts/**",
+  "sdks/python/**",
+  "sdks/typescript/**",
   "skills/**",
   "sql/**",
   "tests/**",
@@ -82,7 +83,6 @@ export default defineConfig({
     },
     ignorePatterns: [
       "**/dist/**",
-      "sdks/typescript/examples/**",
       ...outsideWorkspace,
       ...agentTooling,
     ],
@@ -91,13 +91,9 @@ export default defineConfig({
       {
         // Effect type-aware diagnostics via the effecttsgo plugin that
         // `@effect/tsgo`'s postinstall patch injects into the Oxlint binary.
-        files: ["sdks/effect/**", "sdks/typescript/**"],
+        files: ["sdks/effect/**"],
         plugins: ["effecttsgo"],
         rules: effectRules,
-      },
-      {
-        files: ["habitat/**"],
-        rules: Object.fromEntries(antiSlopRuleNames.map((rule): [string, "off"] => [rule, "off"])),
       },
     ],
   },

@@ -126,7 +126,10 @@ export type TaskResultSnapshot =
   | { state: "failed"; failure: JsonValue | null }
   | { state: "cancelled" };
 
-export type TaskHandler<P = any, R = any> = (params: P, ctx: TaskContext) => Promise<R>;
+export type TaskHandler<P = any, R = any> = (
+  params: P,
+  ctx: TaskContext,
+) => Promise<R>;
 
 /**
  * Internal exception that is thrown to suspend a run.  As a user
@@ -208,7 +211,10 @@ export interface AbsurdHooks {
    * Use this to restore context (e.g., into AsyncLocalStorage) before the
    * task handler runs, ensuring all code within the task has access to it.
    */
-  wrapTaskExecution?: <T>(ctx: TaskContext, execute: () => Promise<T>) => Promise<T>;
+  wrapTaskExecution?: <T>(
+    ctx: TaskContext,
+    execute: () => Promise<T>,
+  ) => Promise<T>;
 }
 
 export interface AbsurdOptions {
@@ -293,13 +299,6 @@ export class TaskContext {
     return this.task.headers ?? {};
   }
 
-  /**
-   * Returns the identifier of the current run.
-   */
-  get runID(): string {
-    return this.task.run_id;
-  }
-
   static async create(args: {
     log: Log;
     taskID: string;
@@ -309,7 +308,8 @@ export class TaskContext {
     claimTimeout: number;
     onLeaseExtended: (leaseSeconds: number) => void;
   }): Promise<TaskContext> {
-    const { log, taskID, con, queueName, task, claimTimeout, onLeaseExtended } = args;
+    const { log, taskID, con, queueName, task, claimTimeout, onLeaseExtended } =
+      args;
     const result = await con.query<CheckpointRow>(
       `SELECT checkpoint_name, state, status, owner_run_id, updated_at
        FROM absurd.get_task_checkpoint_states($1, $2, $3)`,
@@ -319,10 +319,22 @@ export class TaskContext {
     for (const row of result.rows) {
       cache.set(row.checkpoint_name, row.state);
     }
-    return new TaskContext(log, taskID, con, queueName, task, cache, claimTimeout, onLeaseExtended);
+    return new TaskContext(
+      log,
+      taskID,
+      con,
+      queueName,
+      task,
+      cache,
+      claimTimeout,
+      onLeaseExtended,
+    );
   }
 
-  private async queryWithTaskStateCheck(sql: string, params: any[]): Promise<any> {
+  private async queryWithTaskStateCheck(
+    sql: string,
+    params: any[],
+  ): Promise<any> {
     try {
       return await this.con.query(sql, params);
     } catch (err: any) {
@@ -388,7 +400,10 @@ export class TaskContext {
    * @param duration Duration to wait in seconds.
    */
   async sleepFor(stepName: string, duration: number): Promise<void> {
-    return await this.sleepUntil(stepName, new Date(Date.now() + duration * 1000));
+    return await this.sleepUntil(
+      stepName,
+      new Date(Date.now() + duration * 1000),
+    );
   }
 
   /**
@@ -418,7 +433,9 @@ export class TaskContext {
     return actualStepName;
   }
 
-  private async lookupCheckpoint(checkpointName: string): Promise<JsonValue | undefined> {
+  private async lookupCheckpoint(
+    checkpointName: string,
+  ): Promise<JsonValue | undefined> {
     const cached = this.checkpointCache.get(checkpointName);
     if (cached !== undefined) {
       return cached;
@@ -437,7 +454,10 @@ export class TaskContext {
     return undefined;
   }
 
-  private async persistCheckpoint(checkpointName: string, value: JsonValue): Promise<void> {
+  private async persistCheckpoint(
+    checkpointName: string,
+    value: JsonValue,
+  ): Promise<void> {
     await this.queryWithTaskStateCheck(
       `SELECT absurd.set_task_checkpoint_state($1, $2, $3, $4, $5, $6)`,
       [
@@ -488,7 +508,8 @@ export class TaskContext {
     }
     if (
       this.task.wake_event === eventName &&
-      (this.task.event_payload === null || this.task.event_payload === undefined)
+      (this.task.event_payload === null ||
+        this.task.event_payload === undefined)
     ) {
       this.task.wake_event = null;
       this.task.event_payload = null;
@@ -498,7 +519,14 @@ export class TaskContext {
     const result = await this.queryWithTaskStateCheck(
       `SELECT should_suspend, payload
         FROM absurd.await_event($1, $2, $3, $4, $5, $6)`,
-      [this.queueName, this.task.task_id, this.task.run_id, checkpointName, eventName, timeout],
+      [
+        this.queueName,
+        this.task.task_id,
+        this.task.run_id,
+        checkpointName,
+        eventName,
+        timeout,
+      ],
     );
 
     if (result.rows.length === 0) {
@@ -536,7 +564,10 @@ export class TaskContext {
     const stepName = options.stepName ?? `$awaitTaskResult:${taskID}`;
 
     return await this.step(stepName, async () => {
-      const heartbeatIntervalMs = Math.max(500, Math.floor((this.claimTimeout * 1000) / 2));
+      const heartbeatIntervalMs = Math.max(
+        500,
+        Math.floor((this.claimTimeout * 1000) / 2),
+      );
       let nextHeartbeatAt = Date.now() + heartbeatIntervalMs;
 
       return await awaitTaskResultWithBackoff(
@@ -560,11 +591,10 @@ export class TaskContext {
    */
   async heartbeat(seconds?: number): Promise<void> {
     const leaseSeconds = seconds ?? this.claimTimeout;
-    await this.queryWithTaskStateCheck(`SELECT absurd.extend_claim($1, $2, $3)`, [
-      this.queueName,
-      this.task.run_id,
-      leaseSeconds,
-    ]);
+    await this.queryWithTaskStateCheck(
+      `SELECT absurd.extend_claim($1, $2, $3)`,
+      [this.queueName, this.task.run_id, leaseSeconds],
+    );
     this.onLeaseExtended(leaseSeconds);
   }
 
@@ -606,7 +636,9 @@ export class Absurd {
       options = { db: options };
     }
 
-    const validatedQueueName = validateQueueName(options?.queueName ?? "default");
+    const validatedQueueName = validateQueueName(
+      options?.queueName ?? "default",
+    );
 
     let connectionOrUrl = options.db;
     if (!connectionOrUrl) {
@@ -661,7 +693,10 @@ export class Absurd {
     if (!options?.name) {
       throw new Error("Task registration requires a name");
     }
-    if (options.defaultMaxAttempts !== undefined && options.defaultMaxAttempts < 1) {
+    if (
+      options.defaultMaxAttempts !== undefined &&
+      options.defaultMaxAttempts < 1
+    ) {
       throw new Error("defaultMaxAttempts must be at least 1");
     }
     if (options.defaultCancellation) {
@@ -685,7 +720,10 @@ export class Absurd {
    * - createQueue("name")
    * - createQueue("name", { storageMode: "partitioned" })
    */
-  async createQueue(queueName?: string, options: CreateQueueOptions = {}): Promise<void> {
+  async createQueue(
+    queueName?: string,
+    options: CreateQueueOptions = {},
+  ): Promise<void> {
     const queue = validateQueueName(queueName ?? this.queueName);
 
     let storageMode: QueueStorageMode = options.storageMode ?? "unpartitioned";
@@ -697,13 +735,18 @@ export class Absurd {
     if (storageMode === "unpartitioned") {
       await this.con.query(`SELECT absurd.create_queue($1)`, [queue]);
     } else {
-      await this.con.query(`SELECT absurd.create_queue($1, $2)`, [queue, storageMode]);
+      await this.con.query(`SELECT absurd.create_queue($1, $2)`, [
+        queue,
+        storageMode,
+      ]);
     }
 
     await this.setQueuePolicy(queue, options);
   }
 
-  private buildQueuePolicyPayload(options: QueuePolicyOptions): Record<string, unknown> {
+  private buildQueuePolicyPayload(
+    options: QueuePolicyOptions,
+  ): Record<string, unknown> {
     const policy: Record<string, unknown> = {};
 
     if (options.partitionLookahead !== undefined) {
@@ -736,7 +779,10 @@ export class Absurd {
   /**
    * Updates queue maintenance policy fields.
    */
-  async setQueuePolicy(queueName?: string, options: QueuePolicyOptions = {}): Promise<void> {
+  async setQueuePolicy(
+    queueName?: string,
+    options: QueuePolicyOptions = {},
+  ): Promise<void> {
     const queue = validateQueueName(queueName ?? this.queueName);
     const policy = this.buildQueuePolicyPayload(options);
     if (Object.keys(policy).length === 0) {
@@ -862,7 +908,9 @@ export class Absurd {
         ? options.maxAttempts
         : (registration?.defaultMaxAttempts ?? this.defaultMaxAttempts);
     const effectiveCancellation =
-      options.cancellation !== undefined ? options.cancellation : registration?.defaultCancellation;
+      options.cancellation !== undefined
+        ? options.cancellation
+        : registration?.defaultCancellation;
 
     let effectiveOptions: SpawnOptions = {
       ...options,
@@ -888,7 +936,12 @@ export class Absurd {
     }>(
       `SELECT task_id, run_id, attempt, created
        FROM absurd.spawn_task($1, $2, $3, $4)`,
-      [queue, taskName, JSON.stringify(params), JSON.stringify(normalizedOptions)],
+      [
+        queue,
+        taskName,
+        JSON.stringify(params),
+        JSON.stringify(normalizedOptions),
+      ],
     );
 
     if (result.rows.length === 0) {
@@ -911,7 +964,11 @@ export class Absurd {
    * @param payload Optional JSON-serializable payload.
    * @param queueName Queue to emit to (defaults to this client's queue).
    */
-  async emitEvent(eventName: string, payload?: JsonValue, queueName?: string): Promise<void> {
+  async emitEvent(
+    eventName: string,
+    payload?: JsonValue,
+    queueName?: string,
+  ): Promise<void> {
     if (!eventName) {
       throw new Error("eventName must be a non-empty string");
     }
@@ -954,7 +1011,10 @@ export class Absurd {
    * Retries a failed task by either extending attempts on the same task or
    * spawning a brand-new task with the original inputs.
    */
-  async retryTask(taskID: string, options: RetryTaskOptions = {}): Promise<SpawnResult> {
+  async retryTask(
+    taskID: string,
+    options: RetryTaskOptions = {},
+  ): Promise<SpawnResult> {
     const queue = validateQueueName(options.queue ?? this.queueName);
     const payload: JsonObject = {};
 
@@ -1004,7 +1064,11 @@ export class Absurd {
     claimTimeout?: number;
     workerId?: string;
   }): Promise<ClaimedTask[]> {
-    const { batchSize: count = 1, claimTimeout = 120, workerId = "worker" } = options ?? {};
+    const {
+      batchSize: count = 1,
+      claimTimeout = 120,
+      workerId = "worker",
+    } = options ?? {};
 
     const result = await this.con.query<ClaimedTask>(
       `SELECT run_id, task_id, attempt, task_name, params, retry_strategy, max_attempts,
@@ -1194,7 +1258,9 @@ export class Absurd {
       }
 
       warnTimer = setTimeout(() => {
-        this.log.warn(`task ${taskLabel} exceeded claim timeout of ${leaseSeconds}s`);
+        this.log.warn(
+          `task ${taskLabel} exceeded claim timeout of ${leaseSeconds}s`,
+        );
       }, leaseSeconds * 1000);
 
       if (options?.fatalOnLeaseTimeout) {
@@ -1265,7 +1331,11 @@ export class Absurd {
         await execute();
       }
     } catch (err) {
-      if (err instanceof SuspendTask || err instanceof CancelledTask || err instanceof FailedTask) {
+      if (
+        err instanceof SuspendTask ||
+        err instanceof CancelledTask ||
+        err instanceof FailedTask
+      ) {
         // Task suspended or cancelled (sleep or await), don't complete or fail
         return;
       }
@@ -1293,14 +1363,18 @@ function validateQueueName(queueName: string): string {
     throw new Error("Queue name must be provided");
   }
   if (Buffer.byteLength(queueName, "utf8") > MAX_QUEUE_NAME_LENGTH) {
-    throw new Error(`Queue name "${queueName}" is too long (max ${MAX_QUEUE_NAME_LENGTH} bytes).`);
+    throw new Error(
+      `Queue name "${queueName}" is too long (max ${MAX_QUEUE_NAME_LENGTH} bytes).`,
+    );
   }
   return queueName;
 }
 
 function isQueryable(value: unknown): value is Queryable {
   return (
-    typeof value === "object" && value !== null && typeof (value as Queryable).query === "function"
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Queryable).query === "function"
   );
 }
 
@@ -1380,7 +1454,10 @@ async function deferClaimedRun(
   return deferSeconds;
 }
 
-function deterministicJitterSeconds(seed: string, maxJitterSeconds: number): number {
+function deterministicJitterSeconds(
+  seed: string,
+  maxJitterSeconds: number,
+): number {
   if (maxJitterSeconds <= 0) {
     return 0;
   }
@@ -1432,7 +1509,11 @@ function normalizeTimeoutSecondsToMs(timeoutSeconds?: number): number | null {
   if (timeoutSeconds === undefined || timeoutSeconds === Infinity) {
     return null;
   }
-  if (typeof timeoutSeconds !== "number" || Number.isNaN(timeoutSeconds) || timeoutSeconds < 0) {
+  if (
+    typeof timeoutSeconds !== "number" ||
+    Number.isNaN(timeoutSeconds) ||
+    timeoutSeconds < 0
+  ) {
     throw new Error("timeout must be a finite non-negative number");
   }
   return Math.floor(timeoutSeconds * 1000);
@@ -1512,7 +1593,9 @@ function serializeRetryStrategy(strategy: RetryStrategy): JsonObject {
   return serialized;
 }
 
-function normalizeCancellation(policy?: CancellationPolicy): JsonObject | undefined {
+function normalizeCancellation(
+  policy?: CancellationPolicy,
+): JsonObject | undefined {
   if (!policy) {
     return undefined;
   }

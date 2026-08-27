@@ -10,7 +10,7 @@ import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts
 // Task.make deliberately mirrors Effect's schema-first definition modules.
 // oxlint-disable effecttsgo/missing-pipeable-signature
 
-type TaskIdBrand<Name extends string> = `absurd-effect/TaskId/${Name}`;
+type TaskIdBrand<Name extends string> = `absurdly-effective/TaskId/${Name}`;
 
 export type IdSchema<Name extends string> = Schema.brand<typeof Schema.String, TaskIdBrand<Name>>;
 
@@ -200,7 +200,7 @@ export const make = <
   const successSchema = (config.success ?? Schema.Void) as Success;
   const payloadCodec = Schema.toCodecJson(payloadSchema);
   const successCodec = Schema.toCodecJson(successSchema);
-  const idSchema = Schema.String.pipe(Schema.brand(`absurd-effect/TaskId/${name}`));
+  const idSchema = Schema.String.pipe(Schema.brand(`absurdly-effective/TaskId/${name}`));
 
   const spawn: Definition<Name, PayloadSchema<Payload>, Success>["spawn"] = Effect.fn(
     `${name}.spawn`,

@@ -1,12 +1,14 @@
 import { assert, describe, expect, it } from "@effect/vitest";
+import * as PgClient from "@effect/sql-pg/PgClient";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 
 import { Absurd, CurrentTask, Step, Task, Worker } from "../src/index.ts";
-import { pool, randomName } from "./setup.ts";
+import { container, pool, randomName } from "./setup.ts";
 
 // This integration test intentionally closes the complete Worker Layer graph.
 // oxlint-disable effecttsgo/strict-effect-provide
@@ -14,6 +16,16 @@ import { pool, randomName } from "./setup.ts";
 // oxlint-disable effecttsgo/global-date
 
 const epoch = new Date(0);
+
+const AbsurdLayer = () =>
+  Absurd.layerSql.pipe(
+    Layer.provide(
+      PgClient.layer({
+        url: Redacted.make(container.getConnectionUri()),
+        applicationName: "absurdly-effective-test",
+      }),
+    ),
+  );
 
 class CrashAfterProviderResponse extends Schema.TaggedError<CrashAfterProviderResponse>()(
   "CrashAfterProviderResponse",
@@ -39,7 +51,7 @@ describe("Worker", () => {
         ),
       );
       expect(result.rows[0]?.cancellation).toEqual({ max_duration: 1 });
-    }).pipe(Effect.provide(Absurd.layerPool(pool)));
+    }).pipe(Effect.provide(AbsurdLayer()));
 
     return Effect.gen(function* () {
       yield* Effect.promise(() => pool.query("SELECT absurd.create_queue($1)", [queue]));
@@ -125,7 +137,7 @@ describe("Worker", () => {
           handlers: [IssueInvoiceHandler, RecordAuditHandler],
           pollInterval: "10 millis",
           fatalOnLeaseTimeout: false,
-        }).pipe(Layer.provideMerge(Absurd.layerPool(pool))),
+        }).pipe(Layer.provideMerge(AbsurdLayer())),
       ),
     );
 
@@ -177,7 +189,7 @@ describe("Worker", () => {
           concurrency: 2,
           pollInterval: "10 millis",
           fatalOnLeaseTimeout: false,
-        }).pipe(Layer.provideMerge(Absurd.layerPool(pool))),
+        }).pipe(Layer.provideMerge(AbsurdLayer())),
       ),
     );
 

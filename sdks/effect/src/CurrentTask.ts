@@ -9,5 +9,5 @@ export interface CurrentTaskService {
 }
 
 export class CurrentTask extends Context.Service<CurrentTask, CurrentTaskService>()(
-  "absurd-effect/CurrentTask",
+  "absurdly-effective/CurrentTask",
 ) {}

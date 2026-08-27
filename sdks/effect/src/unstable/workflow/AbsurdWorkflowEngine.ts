@@ -64,7 +64,7 @@ import * as WorkflowPersistence from "./Persistence.ts";
  * `AbsurdWorkflowEngine.inQueue` for validated convenience.
  */
 const Queue = Context.Reference<string>(
-  "absurd-effect/unstable/workflow/AbsurdWorkflowEngine/Queue",
+  "absurdly-effective/unstable/workflow/AbsurdWorkflowEngine/Queue",
   { defaultValue: () => "" },
 );
 
@@ -97,7 +97,7 @@ interface ActiveClaim {
  * claimed queue/task/run triple without rereading mutable ownership columns.
  */
 class ClaimContext extends Context.Service<ClaimContext, ActiveClaim>()(
-  "absurd-effect/unstable/workflow/AbsurdWorkflowEngine/ClaimContext",
+  "absurdly-effective/unstable/workflow/AbsurdWorkflowEngine/ClaimContext",
 ) {}
 
 const MAX_QUEUE_NAME_LENGTH = 57;
@@ -202,7 +202,7 @@ class ExecutionStatusService extends Context.Service<
       executionId: string,
     ) => Effect.Effect<AbsurdWorkflowExecutionStatus<unknown, unknown>>;
   }
->()("absurd-effect/unstable/workflow/AbsurdWorkflowEngine/ExecutionStatusService") {}
+>()("absurdly-effective/unstable/workflow/AbsurdWorkflowEngine/ExecutionStatusService") {}
 
 interface Registration {
   readonly workflow: Workflow.Any;
@@ -316,7 +316,7 @@ const makeServices = (options: LayerOptions) =>
       queueReady.set(config.name, yield* Deferred.make<void>());
     }
 
-    const workerId = `absurd-effect:${os.hostname?.() ?? "host"}:${process.pid}`;
+    const workerId = `absurdly-effective:${os.hostname?.() ?? "host"}:${process.pid}`;
     const registrations = new Map<string, Registration>();
     const codecCache = new Map<string, WorkflowPersistence.Codecs>();
 
@@ -412,7 +412,7 @@ const makeServices = (options: LayerOptions) =>
         }),
       );
       yield* Effect.logError(
-        `[absurd-effect] failed malformed workflow task ${claimed.task_id}: MissingExecutionId (${claimed.task_name})`,
+        `[absurdly-effective] failed malformed workflow task ${claimed.task_id}: MissingExecutionId (${claimed.task_name})`,
       );
     });
 
@@ -433,7 +433,7 @@ const makeServices = (options: LayerOptions) =>
         ),
       );
       yield* Effect.logWarning(
-        `[absurd-effect] deferred unregistered workflow ${claimed.task_name} (${claimed.task_id}); it remains replayable when a worker with that handler is deployed`,
+        `[absurdly-effective] deferred unregistered workflow ${claimed.task_name} (${claimed.task_id}); it remains replayable when a worker with that handler is deployed`,
       );
     });
 
@@ -771,7 +771,7 @@ const makeServices = (options: LayerOptions) =>
                 processClaim(config, claimed).pipe(
                   Effect.catchCause((cause) =>
                     Effect.logError(
-                      `[absurd-effect] workflow run ${claimed.task_name} (${claimed.task_id}/${claimed.run_id}) failed`,
+                      `[absurdly-effective] workflow run ${claimed.task_name} (${claimed.task_id}/${claimed.run_id}) failed`,
                       cause,
                     ),
                   ),

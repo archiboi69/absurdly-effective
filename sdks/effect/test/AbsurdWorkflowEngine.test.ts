@@ -46,7 +46,7 @@ class ConformanceProbe extends Context.Service<
     readonly increment: (key: string) => void;
     readonly count: (key: string) => number;
   }
->()("absurd-effect/test/AbsurdWorkflowEngine.test/ConformanceProbe") {}
+>()("absurdly-effective/test/AbsurdWorkflowEngine.test/ConformanceProbe") {}
 
 const ConformanceProbeLayer = Layer.sync(ConformanceProbe, () => {
   const counts = new Map<string, number>();

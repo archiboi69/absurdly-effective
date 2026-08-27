@@ -160,7 +160,6 @@ describe("Hooks", () => {
 
     test("provides TaskContext to wrapper", async () => {
       let capturedTaskId: string | null = null;
-      let capturedRunId: string | null = null;
       let capturedHeaders: any = null;
 
       const absurd = new Absurd({
@@ -173,7 +172,6 @@ describe("Hooks", () => {
           }),
           wrapTaskExecution: async (ctx, execute) => {
             capturedTaskId = ctx.taskID;
-            capturedRunId = ctx.runID;
             capturedHeaders = ctx.headers;
             return await execute();
           },
@@ -182,11 +180,10 @@ describe("Hooks", () => {
 
       absurd.registerTask({ name: "ctx-in-wrapper" }, async () => "done");
 
-      const { taskID, runID } = await absurd.spawn("ctx-in-wrapper", {});
+      const { taskID } = await absurd.spawn("ctx-in-wrapper", {});
       await absurd.workBatch("worker1", 60, 1);
 
       expect(capturedTaskId).toBe(taskID);
-      expect(capturedRunId).toBe(runID);
       expect(capturedHeaders).toEqual({ traceId: "from-spawn" });
     });
   });

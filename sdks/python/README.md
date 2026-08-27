@@ -32,7 +32,6 @@ from absurd_sdk import Absurd
 
 app = Absurd("postgresql://localhost/absurd")
 
-
 @app.register_task(name="order-fulfillment")
 def process_order(params, ctx):
     step = ctx.run_step
@@ -65,7 +64,6 @@ def process_order(params, ctx):
         "notification": notification,
     }
 
-
 app.start_worker()
 ```
 
@@ -75,7 +73,6 @@ app.start_worker()
 from absurd_sdk import AsyncAbsurd
 
 app = AsyncAbsurd("postgresql://localhost/absurd")
-
 
 @app.register_task(name="order-fulfillment")
 async def process_order(params, ctx):
@@ -109,7 +106,6 @@ async def process_order(params, ctx):
         "tracking_number": shipment["tracking_number"],
         "notification": notification,
     }
-
 
 await app.start_worker()
 ```

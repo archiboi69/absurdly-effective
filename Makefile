@@ -1,12 +1,24 @@
-.PHONY: format check check-python test test-core test-effect test-typescript test-python build-absurdctl build-absurdctl-pypi docs serve-docs
+.PHONY: format check test build pack docs serve-docs
 
-# Format all code
+# Format the published Effect package.
 format:
 	@cd sdks/effect && vp fmt
-	@cd sdks/typescript && vp fmt
-	@cd habitat/ui && vp fmt
-	@uvx ruff format tests sdks/python
-	@gofmt -w habitat
+
+# Check the published Effect package.
+check:
+	@cd sdks/effect && vp lint && vp run type-check
+
+# Test the published Effect package against stock Absurd.
+test:
+	@cd sdks/effect && vp test run
+
+# Build the npm package.
+build:
+	@cd sdks/effect && vp run build
+
+# Produce the npm tarball without publishing it.
+pack:
+	@cd sdks/effect && vp pm pack
 
 ZENSICAL_VERSION ?= 0.0.21
 
@@ -18,42 +30,3 @@ docs:
 # Serve documentation locally with live reload
 serve-docs:
 	@uvx --from "zensical==$(ZENSICAL_VERSION)" zensical serve
-
-# Build bundled absurdctl artifacts with embedded schema + migrations
-build-absurdctl:
-	@./scripts/build-absurdctl
-
-# Build the PyPI staging directory for absurdctl
-build-absurdctl-pypi:
-	@./scripts/build-absurdctl --pypi-only
-
-# Run static checks
-check: check-python
-
-# Run Python SDK type checks
-check-python:
-	@echo "Running Python SDK type checks"
-	@cd sdks/python && uv run --all-groups --with ty ty check
-
-# Run all tests
-test: test-core test-effect test-typescript test-python
-
-# Run core tests
-test-core:
-	@echo "Running core tests"
-	@cd tests; uv run pytest
-
-# Run Effect SDK checks and tests
-test-effect:
-	@echo "Running Effect SDK checks and tests"
-	@cd sdks/effect && vp run type-check && vp test run
-
-# Run TypeScript SDK checks and tests
-test-typescript:
-	@echo "Running TypeScript SDK checks and tests"
-	@cd sdks/typescript && vp run type-check && vp run test
-
-# Run Python SDK tests
-test-python:
-	@echo "Running Python SDK tests"
-	@cd sdks/python; uv run pytest

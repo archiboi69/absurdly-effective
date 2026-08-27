@@ -16,7 +16,6 @@ import type * as Scope from "effect/Scope";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { hostname } from "node:os";
-import type * as Pg from "pg";
 
 import type { Cancellation, Retry, RoutedSpawnOptions } from "./Task.ts";
 import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts";
@@ -80,10 +79,13 @@ export class Absurd extends Context.Service<
       options: WorkerOptions,
     ) => Effect.Effect<WorkerHandle, never, Scope.Scope>;
   }
->()("absurd-effect/Absurd") {
+>()("absurdly-effective/Absurd") {
   static readonly layer = (options: Options) => layer(options);
   static readonly layerConfig = (options: Config.Wrap<Options>) => layerConfig(options);
-  static readonly layerPool = (pool: Pg.Pool) => layerPool(pool);
+  /** Uses the PostgreSQL-backed `SqlClient` already provided by the application. */
+  static get layerSql(): Layer.Layer<Absurd | TaskStore, never, SqlClient> {
+    return driverLayer;
+  }
 }
 
 interface SpawnRow {
@@ -549,18 +551,6 @@ const makeContext = Effect.gen(function* () {
 
 const driverLayer = Layer.effectContext(makeContext);
 
-const layerPool = (pool: Pg.Pool) =>
-  driverLayer.pipe(
-    Layer.provide(
-      PgClient.layerFrom(
-        PgClient.fromPool({
-          acquire: Effect.succeed(pool),
-          applicationName: "absurd-effect",
-        }),
-      ),
-    ),
-  );
-
 const layer = (options: Options) =>
   driverLayer.pipe(
     Layer.provide(
@@ -568,7 +558,7 @@ const layer = (options: Options) =>
         url: options.url,
         maxConnections: options.maxConnections,
         idleTimeout: options.idleTimeout,
-        applicationName: "absurd-effect",
+        applicationName: "absurdly-effective",
       }),
     ),
   );

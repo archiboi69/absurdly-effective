@@ -87,19 +87,6 @@ def test_sleep_for_schedules_future_run(conn, queue_name):
     assert abs((available_at - scheduled_wake).total_seconds()) < 1
 
 
-def test_task_context_exposes_run_id(conn, queue_name):
-    queue = queue_name("ctx-run-id")
-    client = Absurd(conn, queue_name=queue)
-    client.create_queue()
-
-    client.spawn("run-id-probe", {}, queue=queue)
-    task = client.claim_tasks(worker_id="worker")[0]
-    ctx = _create_task_context(task["task_id"], conn, queue, task, claim_timeout=120)
-
-    assert ctx.task_id == task["task_id"]
-    assert ctx.run_id == task["run_id"]
-
-
 def test_await_event_flow(conn, queue_name):
     queue = queue_name("events")
     client = Absurd(conn, queue_name=queue)

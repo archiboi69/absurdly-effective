@@ -16,7 +16,9 @@ import { Workflow } from "effect/unstable/workflow";
  * These identifiers are a durable compatibility commitment: workflows may
  * resume under a newer worker long after an older worker persisted them.
  * Change representations by adding backward-compatible readers, never by
- * silently renaming an existing identifier.
+ * silently renaming an existing identifier. The `absurd-effect` event prefix
+ * predates the package's `absurdly-effective` name and remains part of this
+ * persistence protocol.
  */
 export const activityCheckpointName: {
   (attempt: number): (name: string) => string;

@@ -1,4 +1,12 @@
-import { describe, test, assert, expect, beforeAll, afterEach, vi } from "./testlib.ts";
+import {
+  describe,
+  test,
+  assert,
+  expect,
+  beforeAll,
+  afterEach,
+  vi,
+} from "./testlib.ts";
 import { createTestAbsurd, randomName, type TestContext } from "./setup.ts";
 import type { Absurd } from "../src/index.ts";
 import { EventEmitter, once } from "events";
@@ -84,7 +92,9 @@ describe("Basic SDK Operations", () => {
         ],
       );
 
-      const relkinds = new Map(parents.rows.map((row) => [row.relname, row.relkind]));
+      const relkinds = new Map(
+        parents.rows.map((row) => [row.relname, row.relkind]),
+      );
       expect(relkinds.get(`t_${queueName}`)).toBe("p");
       expect(relkinds.get(`r_${queueName}`)).toBe("p");
       expect(relkinds.get(`c_${queueName}`)).toBe("p");
@@ -155,7 +165,9 @@ describe("Basic SDK Operations", () => {
     });
 
     test("rejects spawning unregistered task without queue override", async () => {
-      await expect(absurd.spawn("unregistered-task", { value: 1 })).rejects.toThrowError(
+      await expect(
+        absurd.spawn("unregistered-task", { value: 1 }),
+      ).rejects.toThrowError(
         'Task "unregistered-task" is not registered. Provide options.queue when spawning unregistered tasks.',
       );
     });
@@ -164,11 +176,14 @@ describe("Basic SDK Operations", () => {
       const taskName = "registered-queue-task";
       const otherQueue = randomName("other_queue");
 
-      absurd.registerTask({ name: taskName, queue: ctx.queueName }, async () => ({
-        success: true,
-      }));
+      absurd.registerTask(
+        { name: taskName, queue: ctx.queueName },
+        async () => ({ success: true }),
+      );
 
-      await expect(absurd.spawn(taskName, undefined, { queue: otherQueue })).rejects.toThrowError(
+      await expect(
+        absurd.spawn(taskName, undefined, { queue: otherQueue }),
+      ).rejects.toThrowError(
         `Task "${taskName}" is registered for queue "${ctx.queueName}" but spawn requested queue "${otherQueue}".`,
       );
     });
@@ -209,7 +224,10 @@ describe("Basic SDK Operations", () => {
       const originalQuery = poolAny.query.bind(ctx.pool);
       poolAny.query = (text: any, values?: any) => {
         const sqlText = typeof text === "string" ? text : text?.text;
-        if (typeof sqlText === "string" && sqlText.includes("SELECT absurd.schedule_run(")) {
+        if (
+          typeof sqlText === "string" &&
+          sqlText.includes("SELECT absurd.schedule_run(")
+        ) {
           throw new Error("simulated defer scheduling failure");
         }
         return originalQuery(text, values);
@@ -231,7 +249,9 @@ describe("Basic SDK Operations", () => {
       assert.ok(run);
       expect(run.state).toBe("failed");
       expect((run.failure_reason as any)?.name).toBe("Error");
-      expect((run.failure_reason as any)?.message).toContain("simulated defer scheduling failure");
+      expect((run.failure_reason as any)?.message).toContain(
+        "simulated defer scheduling failure",
+      );
     });
   });
 
@@ -239,11 +259,16 @@ describe("Basic SDK Operations", () => {
     test("claim tasks with various batch sizes", async () => {
       await ctx.cleanupTasks();
 
-      absurd.registerTask<{ id: number }>({ name: "test-claim" }, async (params) => {
-        return params;
-      });
+      absurd.registerTask<{ id: number }>(
+        { name: "test-claim" },
+        async (params) => {
+          return params;
+        },
+      );
 
-      const spawned = await Promise.all([1, 2, 3].map((id) => absurd.spawn("test-claim", { id })));
+      const spawned = await Promise.all(
+        [1, 2, 3].map((id) => absurd.spawn("test-claim", { id })),
+      );
 
       // Test batch claim
       const claimed = await absurd.claimTasks({
@@ -253,7 +278,9 @@ describe("Basic SDK Operations", () => {
       });
 
       expect(claimed.length).toBe(3);
-      expect(claimed.map((c) => c.task_id).sort()).toEqual(spawned.map((s) => s.taskID).sort());
+      expect(claimed.map((c) => c.task_id).sort()).toEqual(
+        spawned.map((s) => s.taskID).sort(),
+      );
 
       // Should now be "running"
       expect((await ctx.getTask(spawned[0].taskID))?.state).toBe("running");
@@ -275,9 +302,12 @@ describe("Basic SDK Operations", () => {
       const baseTime = new Date("2024-04-01T10:00:00Z");
       await ctx.setFakeNow(baseTime);
 
-      absurd.registerTask<{ step: string }>({ name: "schedule-task" }, async () => {
-        return { done: true };
-      });
+      absurd.registerTask<{ step: string }>(
+        { name: "schedule-task" },
+        async () => {
+          return { done: true };
+        },
+      );
 
       const { runID } = await absurd.spawn("schedule-task", { step: "start" });
       const [claim] = await absurd.claimTasks({
@@ -323,9 +353,12 @@ describe("Basic SDK Operations", () => {
       const baseTime = new Date("2024-04-02T09:00:00Z");
       await ctx.setFakeNow(baseTime);
 
-      absurd.registerTask<{ step: string }>({ name: "lease-task" }, async () => {
-        return { ok: true };
-      });
+      absurd.registerTask<{ step: string }>(
+        { name: "lease-task" },
+        async () => {
+          return { ok: true };
+        },
+      );
 
       const { taskID } = await absurd.spawn("lease-task", { step: "attempt" });
       const [claim] = await absurd.claimTasks({
@@ -471,9 +504,12 @@ describe("Basic SDK Operations", () => {
 
     test("task transitions to sleeping state when suspended (waiting for event)", async () => {
       const eventName = randomName("suspend_event");
-      absurd.registerTask({ name: "test-task-suspend" }, async (params, ctx) => {
-        return { received: await ctx.awaitEvent(eventName) };
-      });
+      absurd.registerTask(
+        { name: "test-task-suspend" },
+        async (params, ctx) => {
+          return { received: await ctx.awaitEvent(eventName) };
+        },
+      );
 
       const { taskID } = await absurd.spawn("test-task-suspend", undefined);
 
@@ -492,11 +528,17 @@ describe("Basic SDK Operations", () => {
     });
 
     test("task transitions to failed state after all retries exhausted", async () => {
-      absurd.registerTask({ name: "test-task-fail", defaultMaxAttempts: 2 }, async () => {
-        throw new Error("Task intentionally failed");
-      });
+      absurd.registerTask(
+        { name: "test-task-fail", defaultMaxAttempts: 2 },
+        async () => {
+          throw new Error("Task intentionally failed");
+        },
+      );
 
-      const { taskID, runID: firstRunID } = await absurd.spawn("test-task-fail", undefined);
+      const { taskID, runID: firstRunID } = await absurd.spawn(
+        "test-task-fail",
+        undefined,
+      );
 
       // First attempt fails (task: pending, run: failed)
       await absurd.workBatch("test-worker-fail", 60, 1);
@@ -544,9 +586,12 @@ describe("Basic SDK Operations", () => {
 
   describe("Batch processing", () => {
     test("workBatch processes multiple tasks", async () => {
-      absurd.registerTask<{ id: number }>({ name: "test-work-batch" }, async (params) => {
-        return { result: `task-${params.id}` };
-      });
+      absurd.registerTask<{ id: number }>(
+        { name: "test-work-batch" },
+        async (params) => {
+          return { result: `task-${params.id}` };
+        },
+      );
 
       const tasks = await Promise.all(
         [1, 2, 3].map((id) => absurd.spawn("test-work-batch", { id })),
@@ -619,13 +664,17 @@ describe("Basic SDK Operations", () => {
 
       await once(gate, "task-started");
       await vi.waitFor(async () => {
-        expect(await getExpiresAt(runID)).toBe(baseTime.getTime() + claimTimeout * 1000);
+        expect(await getExpiresAt(runID)).toBe(
+          baseTime.getTime() + claimTimeout * 1000,
+        );
       });
 
       gate.emit("heartbeat");
 
       await vi.waitFor(async () => {
-        expect(await getExpiresAt(runID)).toBe(baseTime.getTime() + extension * 1000);
+        expect(await getExpiresAt(runID)).toBe(
+          baseTime.getTime() + extension * 1000,
+        );
       });
     });
 
@@ -650,7 +699,9 @@ describe("Basic SDK Operations", () => {
       const run = await ctx.getRun(runID);
       expect(run?.state).toBe("failed");
       expect(run?.claim_expires_at?.getTime()).toBe(baseTime.getTime() + 60000);
-      expect(JSON.stringify(run?.failure_reason ?? null)).toContain("extend_by must be > 0");
+      expect(JSON.stringify(run?.failure_reason ?? null)).toContain(
+        "extend_by must be > 0",
+      );
     });
 
     test("heartbeat keeps task alive past original claim timeout", async () => {
@@ -659,12 +710,15 @@ describe("Basic SDK Operations", () => {
       const longWorkMs = claimTimeout * 2000 + 100;
       let heartbeatFired = false;
 
-      absurd.registerTask({ name: "heartbeat-long-task" }, async (_params, taskCtx) => {
-        await taskCtx.heartbeat(extension);
-        heartbeatFired = true;
-        await ctx.sleep(longWorkMs);
-        return { ok: true };
-      });
+      absurd.registerTask(
+        { name: "heartbeat-long-task" },
+        async (_params, taskCtx) => {
+          await taskCtx.heartbeat(extension);
+          heartbeatFired = true;
+          await ctx.sleep(longWorkMs);
+          return { ok: true };
+        },
+      );
 
       const { taskID } = await absurd.spawn("heartbeat-long-task", {});
 

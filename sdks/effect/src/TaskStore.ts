@@ -38,4 +38,4 @@ export class TaskStore extends Context.Service<
     readonly spawn: (request: SpawnRequest) => Effect.Effect<string, TaskStoreError>;
     readonly status: (request: StatusRequest) => Effect.Effect<StoredTaskStatus, TaskStoreError>;
   }
->()("absurd-effect/TaskStore") {}
+>()("absurdly-effective/TaskStore") {}

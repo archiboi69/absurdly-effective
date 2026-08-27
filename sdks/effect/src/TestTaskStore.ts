@@ -41,7 +41,7 @@ export class TestTaskStore extends Context.Service<
     readonly rerun: (taskId: string) => Effect.Effect<void, TaskStoreError>;
     readonly clear: Effect.Effect<void>;
   }
->()("absurd-effect/TestTaskStore") {
+>()("absurdly-effective/TestTaskStore") {
   static readonly layer = <const Handlers extends ReadonlyArray<AnyHandler>>(options: {
     readonly handlers: Handlers;
   }) => makeLayer(options.handlers);

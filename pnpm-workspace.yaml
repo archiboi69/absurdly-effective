@@ -1,7 +1,5 @@
 packages:
   - sdks/effect
-  - sdks/typescript
-  - habitat/ui
 
 allowBuilds:
   cpu-features: true

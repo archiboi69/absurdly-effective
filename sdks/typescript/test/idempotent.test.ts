@@ -43,14 +43,22 @@ describe("Idempotent Task Spawning", () => {
         return { done: true };
       });
 
-      const first = await absurd.spawn("dup-task", { value: 1 }, { idempotencyKey: "dup-key" });
+      const first = await absurd.spawn(
+        "dup-task",
+        { value: 1 },
+        { idempotencyKey: "dup-key" },
+      );
 
       expect(first.taskID).toBeDefined();
       expect(first.runID).toBeDefined();
       expect(first.attempt).toBe(1);
       expect(first.created).toBe(true);
 
-      const second = await absurd.spawn("dup-task", { value: 2 }, { idempotencyKey: "dup-key" });
+      const second = await absurd.spawn(
+        "dup-task",
+        { value: 2 },
+        { idempotencyKey: "dup-key" },
+      );
 
       expect(second.taskID).toBe(first.taskID);
       expect(second.runID).toBe(first.runID);
@@ -78,7 +86,11 @@ describe("Idempotent Task Spawning", () => {
         return { done: true };
       });
 
-      const first = await absurd.spawn("diff-keys-task", { value: 1 }, { idempotencyKey: "key-a" });
+      const first = await absurd.spawn(
+        "diff-keys-task",
+        { value: 1 },
+        { idempotencyKey: "key-a" },
+      );
       const second = await absurd.spawn(
         "diff-keys-task",
         { value: 2 },
@@ -124,12 +136,14 @@ describe("Idempotent Task Spawning", () => {
       const otherQueueName = randomName("other_queue");
       await absurd.createQueue(otherQueueName);
 
-      absurd.registerTask({ name: "queue-scoped-task", queue: ctx.queueName }, async () => ({
-        done: true,
-      }));
-      absurd.registerTask({ name: "queue-scoped-task-other", queue: otherQueueName }, async () => ({
-        done: true,
-      }));
+      absurd.registerTask(
+        { name: "queue-scoped-task", queue: ctx.queueName },
+        async () => ({ done: true }),
+      );
+      absurd.registerTask(
+        { name: "queue-scoped-task-other", queue: otherQueueName },
+        async () => ({ done: true }),
+      );
 
       const first = await absurd.spawn(
         "queue-scoped-task",
@@ -157,9 +171,21 @@ describe("Idempotent Task Spawning", () => {
         return { done: true };
       });
 
-      await absurd.spawn("fire-forget-task", {}, { idempotencyKey: "daily-report:2025-01-15" });
-      await absurd.spawn("fire-forget-task", {}, { idempotencyKey: "daily-report:2025-01-15" });
-      await absurd.spawn("fire-forget-task", {}, { idempotencyKey: "daily-report:2025-01-15" });
+      await absurd.spawn(
+        "fire-forget-task",
+        {},
+        { idempotencyKey: "daily-report:2025-01-15" },
+      );
+      await absurd.spawn(
+        "fire-forget-task",
+        {},
+        { idempotencyKey: "daily-report:2025-01-15" },
+      );
+      await absurd.spawn(
+        "fire-forget-task",
+        {},
+        { idempotencyKey: "daily-report:2025-01-15" },
+      );
 
       await absurd.workBatch("test-worker", 60, 10);
 

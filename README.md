@@ -5,6 +5,11 @@
 
 # Absurd
 
+> This fork is the development workspace for
+> [`absurdly-effective`](sdks/effect), the Effect-native SDK for stock Absurd.
+> The original Absurd project and its TypeScript and Python SDKs remain
+> upstream-owned; only the Effect package is published from this repository.
+
 Absurd is the simplest durable execution workflow system you can think of.
 It's entirely based on Postgres and nothing else.  It's almost as easy to use as
 a queue, but it handles scheduling and retries, and it does all of that without
@@ -115,6 +120,9 @@ Install the SDK for your language of choice:
 # TypeScript / JavaScript
 npm install absurd-sdk
 
+# Effect
+npm install absurdly-effective effect @effect/platform-node
+
 # Python
 uv add absurd-sdk
 ```
@@ -202,7 +210,7 @@ More detail lives in the docs:
 
 - [Quickstart](https://earendil-works.github.io/absurd/quickstart/)
 - [TypeScript SDK](https://earendil-works.github.io/absurd/sdks/typescript/)
-- [Effect SDK](https://earendil-works.github.io/absurd/sdks/effect/)
+- [Effect SDK](docs/sdks/effect.md)
 - [Python SDK](https://earendil-works.github.io/absurd/sdks/python/)
 - [Database Setup and Migrations](https://earendil-works.github.io/absurd/database/)
 - [Concepts](https://earendil-works.github.io/absurd/concepts/) — includes retry semantics, worker claims, and idempotency keys

@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, testLog } from "./testlib.ts";
-import { PostgreSqlContainer, StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import {
+  PostgreSqlContainer,
+  StartedPostgreSqlContainer,
+} from "@testcontainers/postgresql";
 import { Pool } from "pg";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
@@ -17,7 +20,13 @@ export interface TaskRow {
   cancellation: JsonValue | null;
   enqueue_at: Date;
   first_started_at: Date | null;
-  state: "pending" | "running" | "sleeping" | "completed" | "failed" | "cancelled";
+  state:
+    | "pending"
+    | "running"
+    | "sleeping"
+    | "completed"
+    | "failed"
+    | "cancelled";
   attempts: number;
   last_attempt_run: string | null;
   completed_payload: JsonValue | null;
@@ -28,7 +37,13 @@ export interface RunRow {
   run_id: string;
   task_id: string;
   attempt: number;
-  state: "pending" | "running" | "sleeping" | "completed" | "failed" | "cancelled";
+  state:
+    | "pending"
+    | "running"
+    | "sleeping"
+    | "completed"
+    | "failed"
+    | "cancelled";
   claimed_by: string | null;
   claim_expires_at: Date | null;
   available_at: Date;
@@ -51,7 +66,9 @@ const __dirname = dirname(__filename);
 beforeAll(
   async () => {
     console.time("Test container startup");
-    container = await new PostgreSqlContainer("postgres:16-alpine").withExposedPorts(5432).start();
+    container = await new PostgreSqlContainer("postgres:16-alpine")
+      .withExposedPorts(5432)
+      .start();
     console.timeEnd("Test container startup");
 
     pool = new Pool({
@@ -69,7 +86,7 @@ beforeAll(
 
     console.log("✓ Test container started and schema loaded");
   },
-  60000,
+  { timeout: 60000 },
 );
 
 afterAll(async () => {
@@ -99,7 +116,9 @@ export function randomName(prefix = "test"): string {
   return `${prefix}_${Math.random().toString(36).substring(7)}`;
 }
 
-export async function createTestAbsurd(queueName: string = "default"): Promise<TestContext> {
+export async function createTestAbsurd(
+  queueName: string = "default",
+): Promise<TestContext> {
   const absurd = new Absurd({
     db: pool,
     queueName,
@@ -125,7 +144,9 @@ async function setFakeNow(ts: Date | null): Promise<void> {
   if (ts === null) {
     await pool.query("SET absurd.fake_now = DEFAULT");
   } else {
-    await pool.query("SELECT set_config('absurd.fake_now', $1, false)", [ts.toISOString()]);
+    await pool.query("SELECT set_config('absurd.fake_now', $1, false)", [
+      ts.toISOString(),
+    ]);
   }
 }
 
@@ -143,16 +164,18 @@ async function cleanupTasks(queue: string): Promise<void> {
 
 // Internal helpers for querying task and run state
 async function getTask(taskID: string, queue: string): Promise<TaskRow | null> {
-  const { rows } = await pool.query<TaskRow>(`SELECT * FROM absurd.t_${queue} WHERE task_id = $1`, [
-    taskID,
-  ]);
+  const { rows } = await pool.query<TaskRow>(
+    `SELECT * FROM absurd.t_${queue} WHERE task_id = $1`,
+    [taskID],
+  );
   return rows.length > 0 ? rows[0] : null;
 }
 
 async function getRun(runID: string, queue: string): Promise<RunRow | null> {
-  const { rows } = await pool.query<RunRow>(`SELECT * FROM absurd.r_${queue} WHERE run_id = $1`, [
-    runID,
-  ]);
+  const { rows } = await pool.query<RunRow>(
+    `SELECT * FROM absurd.r_${queue} WHERE run_id = $1`,
+    [runID],
+  );
   return rows.length > 0 ? rows[0] : null;
 }
 

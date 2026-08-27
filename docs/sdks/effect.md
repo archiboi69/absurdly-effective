@@ -23,7 +23,7 @@ If you already know you need sleeps, signals, or compensation, jump to
 Install the Effect SDK:
 
 ```bash
-pnpm add absurd-effect effect @effect/platform-node
+pnpm add absurdly-effective effect @effect/platform-node
 ```
 
 Then:
@@ -33,8 +33,8 @@ Then:
 2. Create the queues used by your application.
 3. Set `DATABASE_URL`.
 
-Keep `absurd-effect` and the Absurd SQL contract on the same `0.x` release. For
-example, `absurd-effect@0.5.x` targets Absurd SQL `0.5.x`.
+Keep `absurdly-effective` and the Absurd SQL contract on the same `0.x` release.
+For example, `absurdly-effective@0.5.x` targets Absurd SQL `0.5.x`.
 
 ## Tutorial: your first durable task
 
@@ -45,7 +45,7 @@ result.
 
 ```typescript
 import { Schema } from "effect";
-import { Task } from "absurd-effect";
+import { Task } from "absurdly-effective";
 
 export const SendEmail = Task.make("send-email", {
   queue: "email",
@@ -95,7 +95,7 @@ The handler is an ordinary `Effect`:
 ```typescript
 import { NodeRuntime } from "@effect/platform-node";
 import { Config, Layer } from "effect";
-import { Absurd, Worker } from "absurd-effect";
+import { Absurd, Worker } from "absurdly-effective";
 import { SendEmailHandler } from "./SendEmailHandler.js";
 
 export const DatabaseLayer = Absurd.layerConfig({
@@ -182,6 +182,34 @@ Task.status     -> typed result snapshot
 That is the complete background-task model. Continue only when you need one of
 the capabilities below.
 
+## Use your application's PostgreSQL layer
+
+`Absurd.layer` and `Absurd.layerConfig` are the shortest path when Absurd
+should create the database client. If your Effect application already provides
+a PostgreSQL `SqlClient`, compose it with `Absurd.layerSql` instead:
+
+```bash
+npm install @effect/sql-pg
+```
+
+```typescript
+import { PgClient } from "@effect/sql-pg";
+import { Config, Layer } from "effect";
+import { Absurd } from "absurdly-effective";
+
+const PostgresLayer = PgClient.layerConfig({
+  url: Config.redacted("DATABASE_URL"),
+});
+
+export const AbsurdLayer = Absurd.layerSql.pipe(
+  Layer.provide(PostgresLayer),
+);
+```
+
+This reuses the application's scoped client, pool configuration, telemetry,
+and test layers. The provided `SqlClient` must be backed by PostgreSQL: the
+Effect interface is generic, but Absurd's SQL contract is PostgreSQL-specific.
+
 ## Add a durable step when retries must not repeat work
 
 Suppose the provider accepted an email, but the worker died before completing
@@ -191,7 +219,7 @@ an Effect-based provider client:
 
 ```typescript
 import { Effect, Schema } from "effect";
-import { CurrentTask, Step } from "absurd-effect";
+import { CurrentTask, Step } from "absurdly-effective";
 
 export const SendEmailHandler = SendEmail.handler(
   Effect.fn("SendEmail.handler")(function* ({ to, subject }) {
@@ -254,7 +282,7 @@ npm install @effect/sql-pg pg
 ### Step 1: define and route the workflow
 
 ```typescript
-import { AbsurdWorkflowEngine } from "absurd-effect/unstable/workflow";
+import { AbsurdWorkflowEngine } from "absurdly-effective/unstable/workflow";
 import { Schema } from "effect";
 import { Workflow } from "effect/unstable/workflow";
 
@@ -516,7 +544,7 @@ bounded infrastructure retry policy and become visible as protocol failures.
 ### Durable tasks
 
 - `Task.make`, `Task.spawn`, `Task.status`, and `Task.handler`
-- `Absurd.layer`, `Absurd.layerConfig`, and `Absurd.layerPool`
+- `Absurd.layer`, `Absurd.layerConfig`, and `Absurd.layerSql`
 - `Worker.layer({ handlers })`
 - `CurrentTask` for stable task metadata
 - `Step.make` for durable success checkpoints
@@ -537,7 +565,7 @@ Use `TestTaskStore` for fast handler and checkpoint tests:
 ```typescript
 import { assert, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { TestTaskStore } from "absurd-effect";
+import { TestTaskStore } from "absurdly-effective";
 import { SendEmail } from "./SendEmail.js";
 import { SendEmailHandler } from "./SendEmailHandler.js";
 
