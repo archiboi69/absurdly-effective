@@ -16,27 +16,30 @@ import { Workflow } from "effect/unstable/workflow";
  * These identifiers are a durable compatibility commitment: workflows may
  * resume under a newer worker long after an older worker persisted them.
  * Change representations by adding backward-compatible readers, never by
- * silently renaming an existing identifier. The `absurd-effect` event prefix
- * predates the package's `absurdly-effective` name and remains part of this
- * persistence protocol.
+ * silently renaming an existing identifier.
  */
+const reservedNamespace = "$absurd:effect:v1";
+const protocolIdentifier = (...segments: ReadonlyArray<string | number>): string =>
+  [reservedNamespace, ...segments].join(":");
+
 export const activityCheckpointName: {
   (attempt: number): (name: string) => string;
   (name: string, attempt: number): string;
-} = dual(2, (name: string, attempt: number): string => `$activity:${name}:${attempt}`);
-export const deferredCheckpointName = (name: string): string => `$defer:${name}`;
+} = dual(2, (name: string, attempt: number): string =>
+  protocolIdentifier("activity", name, attempt),
+);
+export const deferredCheckpointName = (name: string): string =>
+  protocolIdentifier("deferred", name);
 export const clockDeadlineCheckpointName = (deferredName: string): string =>
-  `$clock:${deferredName}`;
-export const interruptCheckpointName = "$effect:interrupt";
-export const parentExecutionHeaderKey = "$effect:parent";
+  protocolIdentifier("clock", deferredName);
+export const interruptCheckpointName = protocolIdentifier("interrupt");
+export const parentExecutionHeaderKey = protocolIdentifier("parent");
 
 export const deferredEventName: {
   (executionId: string, deferredName: string): (workflowTag: string) => string;
   (workflowTag: string, executionId: string, deferredName: string): string;
-} = dual(
-  3,
-  (workflowTag: string, executionId: string, deferredName: string): string =>
-    `absurd-effect:deferred:${workflowTag}:${executionId}:${deferredName}`,
+} = dual(3, (workflowTag: string, executionId: string, deferredName: string): string =>
+  protocolIdentifier("deferred-event", workflowTag, executionId, deferredName),
 );
 
 interface DoorbellNames {
@@ -48,8 +51,8 @@ export const doorbellNames: {
   (id: string): (executionId: string) => DoorbellNames;
   (executionId: string, id: string): DoorbellNames;
 } = dual(2, (executionId: string, id: string): DoorbellNames => ({
-  checkpointName: `$effect:wake:${id}`,
-  eventName: `absurd-effect:wake:${executionId}:${id}`,
+  checkpointName: protocolIdentifier("wake", id),
+  eventName: protocolIdentifier("wake-event", executionId, id),
 }));
 
 export const ExecutionReference = Schema.Struct({

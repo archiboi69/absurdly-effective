@@ -134,26 +134,32 @@ describe("Workflow persistence codecs (Type side ↔ canonical JSON)", () => {
 
 describe("Workflow persistence compatibility", () => {
   it("keeps durable identifier spellings stable", () => {
-    expect(WorkflowPersistence.interruptCheckpointName).toBe("$effect:interrupt");
-    expect(WorkflowPersistence.parentExecutionHeaderKey).toBe("$effect:parent");
-    expect(WorkflowPersistence.activityCheckpointName("charge", 2)).toBe("$activity:charge:2");
-    expect(WorkflowPersistence.deferredCheckpointName("approval")).toBe("$defer:approval");
-    expect(WorkflowPersistence.clockDeadlineCheckpointName("deadline")).toBe("$clock:deadline");
+    expect(WorkflowPersistence.interruptCheckpointName).toBe("$absurd:effect:v1:interrupt");
+    expect(WorkflowPersistence.parentExecutionHeaderKey).toBe("$absurd:effect:v1:parent");
+    expect(WorkflowPersistence.activityCheckpointName("charge", 2)).toBe(
+      "$absurd:effect:v1:activity:charge:2",
+    );
+    expect(WorkflowPersistence.deferredCheckpointName("approval")).toBe(
+      "$absurd:effect:v1:deferred:approval",
+    );
+    expect(WorkflowPersistence.clockDeadlineCheckpointName("deadline")).toBe(
+      "$absurd:effect:v1:clock:deadline",
+    );
     expect(WorkflowPersistence.doorbellNames("execution-1", "doorbell-1")).toEqual({
-      checkpointName: "$effect:wake:doorbell-1",
-      eventName: "absurd-effect:wake:execution-1:doorbell-1",
+      checkpointName: "$absurd:effect:v1:wake:doorbell-1",
+      eventName: "$absurd:effect:v1:wake-event:execution-1:doorbell-1",
     });
     expect(WorkflowPersistence.deferredEventName("Invoice", "execution-1", "approval")).toBe(
-      "absurd-effect:deferred:Invoice:execution-1:approval",
+      "$absurd:effect:v1:deferred-event:Invoice:execution-1:approval",
     );
   });
 
-  it("reads the original literal parent-execution header", () => {
-    // Compatibility fixture: this literal represents data written by an older
-    // deployment. Do not replace it with the current exported key.
+  it("reads the literal parent-execution header", () => {
+    // Keep this literal independent of the exported key so the persisted
+    // spelling remains part of the compatibility test.
     const parent = Effect.runSync(
       WorkflowPersistence.decodeParentExecution({
-        "$effect:parent": {
+        "$absurd:effect:v1:parent": {
           queue: "finance",
           executionId: "invoice-123",
         },

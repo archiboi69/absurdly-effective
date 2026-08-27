@@ -502,7 +502,7 @@ describe("AbsurdWorkflowEngine durability", () => {
       const owners = yield* queryRows<OwnerAttemptRow>(
         `SELECT r.attempt FROM absurd.c_${fenceQueue} c
          JOIN absurd.r_${fenceQueue} r ON r.run_id = c.owner_run_id
-         WHERE c.checkpoint_name LIKE '$activity:fence-me:%'`,
+         WHERE c.checkpoint_name LIKE '$absurd:effect:v1:activity:fence-me:%'`,
         [],
       );
       expect(owners.map((o) => o.attempt).sort((x, y) => x - y)).toEqual([2]);

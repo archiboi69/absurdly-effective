@@ -1052,7 +1052,7 @@ describe("AbsurdWorkflowEngine conformance", () => {
         yield* Effect.promise(() =>
           pool.query(
             `SELECT absurd.set_task_checkpoint_state(
-               $1, $2, '$effect:interrupt', $3::jsonb, $4
+               $1, $2, '$absurd:effect:v1:interrupt', $3::jsonb, $4
              )`,
             [childQueue, task.task_id, interruptState, task.last_attempt_run],
           ),
