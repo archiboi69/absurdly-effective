@@ -29,10 +29,10 @@ import * as Schema from "effect/Schema";
  * expose no infrastructure error channel.
  */
 
-// SAFETY: Absurd's jsonb columns are the system of record for these values;
-// encoding arbitrary JSON-safe structures to JSON text is exactly the job of
-// this boundary, so `Schema.Unknown` is the accurate contract here.
-const toJsonText = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+// Absurd's jsonb columns are the system of record for these values. Keeping
+// this transform inside SQL request schemas makes serialization failure part
+// of the Effect boundary instead of an exception thrown while building SQL.
+const JsonText = Schema.fromJsonString(Schema.Unknown);
 
 const ClaimedRow = Schema.Struct({
   run_id: Schema.String,
@@ -68,6 +68,56 @@ const TaskSnapshotRow = Schema.Struct({
 export type TaskSnapshotRow = typeof TaskSnapshotRow.Type;
 
 const SpawnedTaskRow = Schema.Struct({ task_id: Schema.String });
+
+const SpawnTaskRequest = Schema.Struct({
+  queue: Schema.String,
+  taskName: Schema.String,
+  payload: JsonText,
+  options: JsonText,
+});
+
+const ExtendClaimRequest = Schema.Struct({
+  queue: Schema.String,
+  runId: Schema.String,
+  seconds: Schema.Int,
+});
+
+const CompleteRunRequest = Schema.Struct({
+  queue: Schema.String,
+  runId: Schema.String,
+  result: JsonText,
+});
+
+const FailRunRequest = Schema.Struct({
+  queue: Schema.String,
+  runId: Schema.String,
+  reason: JsonText,
+});
+
+const ScheduleRunRequest = Schema.Struct({
+  queue: Schema.String,
+  runId: Schema.String,
+  seconds: Schema.Int,
+});
+
+const EmitEventRequest = Schema.Struct({
+  queue: Schema.String,
+  eventName: Schema.String,
+  payload: JsonText,
+});
+
+const CancelTaskRequest = Schema.Struct({
+  queue: Schema.String,
+  taskId: Schema.String,
+});
+
+const SetCheckpointStateRequest = Schema.Struct({
+  queue: Schema.String,
+  taskId: Schema.String,
+  checkpointName: Schema.String,
+  state: JsonText,
+  ownerRunId: Schema.String,
+});
 
 const AwaitEventRow = Schema.Struct({ should_suspend: Schema.Boolean });
 const CurrentWaitRow = Schema.Struct({ event_name: Schema.String });
@@ -115,6 +165,16 @@ const optionalRow = <A extends object>(
     Result,
     execute: () => execute,
   })(undefined).pipe(Effect.catchTag("SchemaError", Effect.die));
+
+/** Build a command operation and treat invalid internal requests as defects. */
+const command = <Req extends Schema.Constraint>(options: {
+  readonly Request: Req;
+  readonly execute: (request: Req["Encoded"]) => Effect.Effect<unknown, SqlError.SqlError>;
+}) => {
+  const execute = SqlSchema.void(options);
+  return (request: Req["Type"]) =>
+    execute(request).pipe(Effect.catchTag("SchemaError", Effect.die));
+};
 
 interface AbsurdWorkflowStore {
   readonly spawnTask: (
@@ -196,156 +256,199 @@ interface AbsurdWorkflowStore {
   ) => Effect.Effect<Option.Option<TaskSnapshotRow>, SqlError.SqlError>;
 }
 
-export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowStore => ({
-  spawnTask: (queue, taskName, payload, options) =>
-    requiredRow(
-      SpawnedTaskRow,
+export const absurdWorkflowStore = (sql: SqlClient.SqlClient): AbsurdWorkflowStore => {
+  const spawnTask = SqlSchema.findOne({
+    Request: SpawnTaskRequest,
+    Result: SpawnedTaskRow,
+    execute: ({ queue, taskName, payload, options }) =>
       sql.unsafe(`select task_id from absurd.spawn_task($1, $2, $3, $4)`, [
         queue,
         taskName,
-        toJsonText(payload),
-        toJsonText(options),
+        payload,
+        options,
       ]),
-    ),
+  });
 
-  taskByExecutionId: (queue, executionId) =>
-    Effect.gen(function* () {
-      const storageMode = yield* requiredRow(
-        QueueStorageModeRow,
-        sql.unsafe(
-          "select coalesce(" +
-            "(select storage_mode from absurd.queues where queue_name = $1), " +
-            "'unpartitioned') as storage_mode",
-          [queue],
-        ),
-      );
-      const taskTable = quoteQueueTable("t_", queue);
-      const idempotencyTable = quoteQueueTable("i_", queue);
-      const query =
-        storageMode.storage_mode === "partitioned"
-          ? "select t.task_id, t.last_attempt_run, t.state " +
-            "from " +
-            idempotencyTable +
-            " i join " +
-            taskTable +
-            " t on t.task_id = i.task_id where i.idempotency_key = $1"
-          : "select task_id, last_attempt_run, state from " +
-            taskTable +
-            " where idempotency_key = $1";
-      return yield* optionalRow(ExecutionTaskRow, sql.unsafe(query, [executionId]));
-    }),
+  const extendClaim = command({
+    Request: ExtendClaimRequest,
+    execute: ({ queue, runId, seconds }) =>
+      sql.unsafe(`select absurd.extend_claim($1, $2, $3)`, [queue, runId, seconds]),
+  });
 
-  executionIdForTask: (queue, taskId) =>
-    optionalRow(
-      ExecutionIdRow,
-      sql.unsafe(
-        "select idempotency_key from " + quoteQueueTable("t_", queue) + " where task_id = $1",
-        [taskId],
-      ),
-    ).pipe(Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.idempotency_key)))),
+  const completeRun = command({
+    Request: CompleteRunRequest,
+    execute: ({ queue, runId, result }) =>
+      sql.unsafe(`select absurd.complete_run($1, $2, $3)`, [queue, runId, result]),
+  });
 
-  currentWakeEvent: (queue, runId) =>
-    optionalRow(
-      CurrentWaitRow,
-      sql.unsafe(
-        "select wake_event as event_name from " +
-          quoteQueueTable("r_", queue) +
-          " where run_id = $1 and state = 'sleeping' and wake_event is not null",
-        [runId],
-      ),
-    ).pipe(Effect.map(Option.map((row) => row.event_name))),
+  const failRun = command({
+    Request: FailRunRequest,
+    execute: ({ queue, runId, reason }) =>
+      sql.unsafe(`select absurd.fail_run($1, $2, $3)`, [queue, runId, reason]),
+  });
 
-  eventPayload: (queue, eventName) =>
-    optionalRow(
-      EventPayloadRow,
-      sql.unsafe(
-        "select payload from " +
-          quoteQueueTable("e_", queue) +
-          " where event_name = $1 and payload is not null",
-        [eventName],
-      ),
-    ).pipe(Effect.map(Option.map((row) => row.payload))),
-
-  claimTask: (queue, workerId, claimTimeoutSeconds) =>
-    optionalRow(
-      ClaimedRow,
-      sql.unsafe(
-        `select run_id, task_id, attempt, task_name, params, headers
-         from absurd.claim_task($1, $2, $3, $4)`,
-        [queue, workerId, claimTimeoutSeconds, 1],
-      ),
-    ),
-
-  extendClaim: (queue, runId, seconds) =>
-    Effect.asVoid(sql.unsafe(`select absurd.extend_claim($1, $2, $3)`, [queue, runId, seconds])),
-
-  completeRun: (queue, runId, result) =>
-    Effect.asVoid(
-      sql.unsafe(`select absurd.complete_run($1, $2, $3)`, [queue, runId, toJsonText(result)]),
-    ),
-
-  failRun: (queue, runId, reason) =>
-    Effect.asVoid(
-      sql.unsafe(`select absurd.fail_run($1, $2, $3)`, [queue, runId, toJsonText(reason)]),
-    ),
-
-  scheduleRunInSeconds: (queue, runId, seconds) =>
-    Effect.asVoid(
+  const scheduleRun = command({
+    Request: ScheduleRunRequest,
+    execute: ({ queue, runId, seconds }) =>
       sql.unsafe(
         `select absurd.schedule_run($1, $2, absurd.current_time() + make_interval(secs => $3))`,
         [queue, runId, seconds],
       ),
-    ),
+  });
 
-  awaitEvent: (queue, taskId, runId, checkpointName, eventName, timeoutSeconds) =>
-    requiredRow(
-      AwaitEventRow,
-      sql.unsafe(`select should_suspend from absurd.await_event($1, $2, $3, $4, $5, $6)`, [
-        queue,
-        taskId,
-        runId,
-        checkpointName,
-        eventName,
-        timeoutSeconds ?? null,
-      ]),
-    ),
+  const emitEvent = command({
+    Request: EmitEventRequest,
+    execute: ({ queue, eventName, payload }) =>
+      sql.unsafe(`select absurd.emit_event($1, $2, $3)`, [queue, eventName, payload]),
+  });
 
-  emitEvent: (queue, eventName, payload) =>
-    Effect.asVoid(
-      sql.unsafe(`select absurd.emit_event($1, $2, $3)`, [queue, eventName, toJsonText(payload)]),
-    ),
+  const cancelTask = command({
+    Request: CancelTaskRequest,
+    execute: ({ queue, taskId }) =>
+      sql.unsafe(`select absurd.cancel_task($1, $2)`, [queue, taskId]),
+  });
 
-  cancelTask: (queue, taskId) =>
-    Effect.asVoid(sql.unsafe(`select absurd.cancel_task($1, $2)`, [queue, taskId])),
-
-  checkpointState: (queue, taskId, checkpointName) =>
-    optionalRow(
-      CheckpointStateRow,
-      sql.unsafe(`select state from absurd.get_task_checkpoint_state($1, $2, $3)`, [
-        queue,
-        taskId,
-        checkpointName,
-      ]),
-    ).pipe(Effect.map(Option.map((row) => row.state))),
-
-  setCheckpointState: (queue, taskId, checkpointName, state, ownerRunId) =>
-    Effect.asVoid(
+  const setCheckpointState = command({
+    Request: SetCheckpointStateRequest,
+    execute: ({ queue, taskId, checkpointName, state, ownerRunId }) =>
       sql.unsafe(`select absurd.set_task_checkpoint_state($1, $2, $3, $4, $5)`, [
         queue,
         taskId,
         checkpointName,
-        toJsonText(state),
+        state,
         ownerRunId,
       ]),
-    ),
+  });
 
-  taskResult: (queue, taskId) =>
-    optionalRow(
-      TaskSnapshotRow,
-      sql.unsafe(
-        `select state, result, failure_reason
-           from absurd.get_task_result($1, $2)`,
-        [queue, taskId],
+  return {
+    spawnTask: (queue, taskName, payload, options) =>
+      spawnTask({ queue, taskName, payload, options }).pipe(
+        Effect.catchTags({
+          NoSuchElementError: Effect.die,
+          SchemaError: Effect.die,
+        }),
       ),
-    ),
-});
+
+    taskByExecutionId: (queue, executionId) =>
+      Effect.gen(function* () {
+        const storageMode = yield* requiredRow(
+          QueueStorageModeRow,
+          sql.unsafe(
+            "select coalesce(" +
+              "(select storage_mode from absurd.queues where queue_name = $1), " +
+              "'unpartitioned') as storage_mode",
+            [queue],
+          ),
+        );
+        const taskTable = quoteQueueTable("t_", queue);
+        const idempotencyTable = quoteQueueTable("i_", queue);
+        const query =
+          storageMode.storage_mode === "partitioned"
+            ? "select t.task_id, t.last_attempt_run, t.state " +
+              "from " +
+              idempotencyTable +
+              " i join " +
+              taskTable +
+              " t on t.task_id = i.task_id where i.idempotency_key = $1"
+            : "select task_id, last_attempt_run, state from " +
+              taskTable +
+              " where idempotency_key = $1";
+        return yield* optionalRow(ExecutionTaskRow, sql.unsafe(query, [executionId]));
+      }),
+
+    executionIdForTask: (queue, taskId) =>
+      optionalRow(
+        ExecutionIdRow,
+        sql.unsafe(
+          "select idempotency_key from " + quoteQueueTable("t_", queue) + " where task_id = $1",
+          [taskId],
+        ),
+      ).pipe(Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.idempotency_key)))),
+
+    currentWakeEvent: (queue, runId) =>
+      optionalRow(
+        CurrentWaitRow,
+        sql.unsafe(
+          "select wake_event as event_name from " +
+            quoteQueueTable("r_", queue) +
+            " where run_id = $1 and state = 'sleeping' and wake_event is not null",
+          [runId],
+        ),
+      ).pipe(Effect.map(Option.map((row) => row.event_name))),
+
+    eventPayload: (queue, eventName) =>
+      optionalRow(
+        EventPayloadRow,
+        sql.unsafe(
+          "select payload from " +
+            quoteQueueTable("e_", queue) +
+            " where event_name = $1 and payload is not null",
+          [eventName],
+        ),
+      ).pipe(Effect.map(Option.map((row) => row.payload))),
+
+    claimTask: (queue, workerId, claimTimeoutSeconds) =>
+      optionalRow(
+        ClaimedRow,
+        sql.unsafe(
+          `select run_id, task_id, attempt, task_name, params, headers
+         from absurd.claim_task($1, $2, $3, $4)`,
+          [queue, workerId, claimTimeoutSeconds, 1],
+        ),
+      ),
+
+    extendClaim: (queue, runId, seconds) => extendClaim({ queue, runId, seconds }),
+
+    completeRun: (queue, runId, result) => completeRun({ queue, runId, result }),
+
+    failRun: (queue, runId, reason) => failRun({ queue, runId, reason }),
+
+    scheduleRunInSeconds: (queue, runId, seconds) => scheduleRun({ queue, runId, seconds }),
+
+    awaitEvent: (queue, taskId, runId, checkpointName, eventName, timeoutSeconds) =>
+      requiredRow(
+        AwaitEventRow,
+        sql.unsafe(`select should_suspend from absurd.await_event($1, $2, $3, $4, $5, $6)`, [
+          queue,
+          taskId,
+          runId,
+          checkpointName,
+          eventName,
+          timeoutSeconds ?? null,
+        ]),
+      ),
+
+    emitEvent: (queue, eventName, payload) => emitEvent({ queue, eventName, payload }),
+
+    cancelTask: (queue, taskId) => cancelTask({ queue, taskId }),
+
+    checkpointState: (queue, taskId, checkpointName) =>
+      optionalRow(
+        CheckpointStateRow,
+        sql.unsafe(`select state from absurd.get_task_checkpoint_state($1, $2, $3)`, [
+          queue,
+          taskId,
+          checkpointName,
+        ]),
+      ).pipe(Effect.map(Option.map((row) => row.state))),
+
+    setCheckpointState: (queue, taskId, checkpointName, state, ownerRunId) =>
+      setCheckpointState({
+        queue,
+        taskId,
+        checkpointName,
+        state,
+        ownerRunId,
+      }),
+
+    taskResult: (queue, taskId) =>
+      optionalRow(
+        TaskSnapshotRow,
+        sql.unsafe(
+          `select state, result, failure_reason
+           from absurd.get_task_result($1, $2)`,
+          [queue, taskId],
+        ),
+      ),
+  };
+};
