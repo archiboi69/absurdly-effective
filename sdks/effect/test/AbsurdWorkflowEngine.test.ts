@@ -96,7 +96,7 @@ const ActivityRaceWorkflow = AbsurdWorkflowEngine.inQueue(parentQueue)(
   Workflow.make("sdk-conformance/ActivityRace", {
     payload: { id: Schema.String },
     success: Schema.String,
-    error: Schema.Never,
+    error: Schema.String,
     idempotencyKey: ({ id }) => id,
   }),
 );
@@ -110,36 +110,16 @@ const ActivityRaceLayer = ActivityRaceWorkflow.toLayer(() =>
       execute: Effect.sleep(Duration.millis(200)).pipe(Effect.as("slow")),
     }),
     Activity.make({
-      name: "fast-provider",
-      success: Schema.String,
-      error: Schema.Never,
-      execute: Effect.sleep(Duration.millis(25)).pipe(Effect.as("fast")),
-    }),
-  ]),
-);
-
-const FailureRaceWorkflow = AbsurdWorkflowEngine.inQueue(parentQueue)(
-  Workflow.make("sdk-conformance/ActivityFailureRace", {
-    payload: { id: Schema.String },
-    success: Schema.String,
-    error: Schema.String,
-    idempotencyKey: ({ id }) => id,
-  }),
-);
-
-const FailureRaceLayer = FailureRaceWorkflow.toLayer(() =>
-  Activity.raceAll("provider-fallback", [
-    Activity.make({
       name: "rejected-provider",
       success: Schema.String,
       error: Schema.String,
       execute: Effect.fail("rejected"),
     }),
     Activity.make({
-      name: "accepted-provider",
+      name: "fast-provider",
       success: Schema.String,
       error: Schema.String,
-      execute: Effect.sleep(Duration.millis(50)).pipe(Effect.as("accepted")),
+      execute: Effect.sleep(Duration.millis(25)).pipe(Effect.as("fast")),
     }),
   ]),
 );
@@ -457,7 +437,6 @@ const HandlerLayer = Layer.mergeAll(
   ParentLayer,
   ChildLayer,
   ActivityRaceLayer,
-  FailureRaceLayer,
   DeferredRaceLayer,
   MixedDeferredRaceLayer,
   MultiAwaitRaceLayer,
@@ -550,24 +529,13 @@ describe("AbsurdWorkflowEngine conformance", () => {
     ]),
   );
 
-  it.live("Activity.raceAll returns the fastest successful activity", () =>
+  it.live("Activity.raceAll ignores a failure and returns the fastest success", () =>
     withRuntime((context) =>
       Effect.gen(function* () {
         const result = yield* ActivityRaceWorkflow.execute({
           id: randomName("activity-race"),
         }).pipe(Effect.provideContext(context), Effect.timeout(Duration.seconds(10)));
         expect(result).toBe("fast");
-      }),
-    ),
-  );
-
-  it.live("Activity.raceAll keeps racing after an activity fails", () =>
-    withRuntime((context) =>
-      Effect.gen(function* () {
-        const result = yield* FailureRaceWorkflow.execute({
-          id: randomName("activity-failure-race"),
-        }).pipe(Effect.provideContext(context), Effect.timeout(Duration.seconds(10)));
-        expect(result).toBe("accepted");
       }),
     ),
   );

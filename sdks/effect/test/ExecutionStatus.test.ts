@@ -112,16 +112,9 @@ describe("AbsurdWorkflowEngine execution status", () => {
     ),
   );
 
-  it("uses one queue annotation for direct and convenience forms", () => {
-    const WorkflowDefinition = Workflow.make("sdk-int/Queue", {
-      payload: { id: Schema.String },
-      idempotencyKey: ({ id }) => id,
-    });
-    const annotated = WorkflowDefinition.annotate(AbsurdWorkflowEngine.Queue, queue);
-    const convenient = AbsurdWorkflowEngine.inQueue(queue)(WorkflowDefinition);
-
-    expect(Context.get(annotated.annotations, AbsurdWorkflowEngine.Queue)).toBe(queue);
-    expect(Context.get(convenient.annotations, AbsurdWorkflowEngine.Queue)).toBe(queue);
+  it("rejects queue names that Absurd cannot safely address", () => {
+    expect(() => AbsurdWorkflowEngine.inQueue("invalid-queue")(StatusWorkflow)).toThrow();
+    expect(() => AbsurdWorkflowEngine.inQueue("x".repeat(58))(StatusWorkflow)).toThrow();
   });
 
   it.live("ensures a pending execution and distinguishes it from NotFound", () =>

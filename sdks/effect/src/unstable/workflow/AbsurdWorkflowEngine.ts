@@ -67,8 +67,7 @@ const parentExecutionHeaders = (parent: ExecutionReference) => ({
   [Reserved.parentExecutionHeaderKey]: parent,
 });
 
-/** @internal */
-export const decodeParentExecution = Effect.fnUntraced(function* (headers: unknown) {
+const decodeParentExecution = Effect.fnUntraced(function* (headers: unknown) {
   const decoded = yield* Schema.decodeUnknownEffect(WorkflowHeaders)(headers);
   if (decoded === null) return Option.none();
   return Option.fromNullishOr(decoded[Reserved.parentExecutionHeaderKey]);
@@ -80,8 +79,7 @@ interface WorkflowCodecs {
   readonly result: ReturnType<typeof Schema.toCodecJson>;
 }
 
-/** @internal */
-export const makeWorkflowCodecs = (workflow: Workflow.Any): WorkflowCodecs => ({
+const makeWorkflowCodecs = (workflow: Workflow.Any): WorkflowCodecs => ({
   payload: Schema.toCodecJson(workflow.payloadSchema),
   result: Schema.toCodecJson(
     Workflow.Result({
@@ -99,19 +97,16 @@ const structuralExitCodec = Schema.toCodecJson(
   Schema.Exit(Schema.Unknown, Schema.Unknown, Schema.Defect()),
 );
 
-/** @internal Normalizes nullish successes for the engine's JSON exit shape. */
-export const exitWithNullishValues = (
-  exit: Exit.Exit<unknown, unknown>,
-): Exit.Exit<unknown, unknown> => Exit.map(exit, (value) => value ?? null);
+/** Normalizes nullish successes for the engine's JSON exit shape. */
+const exitWithNullishValues = (exit: Exit.Exit<unknown, unknown>): Exit.Exit<unknown, unknown> =>
+  Exit.map(exit, (value) => value ?? null);
 
 type StructuralExitEncoded = Schema.Codec.Encoded<typeof structuralExitCodec>;
 
-/** @internal */
-export const encodeStructuralExit = (exit: Exit.Exit<unknown, unknown>): StructuralExitEncoded =>
+const encodeStructuralExit = (exit: Exit.Exit<unknown, unknown>): StructuralExitEncoded =>
   exit.pipe(exitWithNullishValues, Schema.encodeSync(structuralExitCodec));
 
-/** @internal */
-export const decodeStructuralExit = (stored: unknown): Exit.Exit<unknown, unknown> =>
+const decodeStructuralExit = (stored: unknown): Exit.Exit<unknown, unknown> =>
   Schema.decodeUnknownSync(structuralExitCodec)(stored);
 
 /**
