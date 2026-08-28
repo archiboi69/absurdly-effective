@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
 
 import { CurrentTask, currentTaskWithStep } from "./CurrentTask.ts";
-import * as StepStorage from "./StepStorage.ts";
+import * as Checkpoint from "./internal/Checkpoint.ts";
 
 // Test checkpoints intentionally exercise the same untyped JSON boundary as storage.
 // oxlint-disable anti-slop/no-unknown-parameters
@@ -31,8 +31,8 @@ export const make = (options: Options = {}): TestCurrentTask => {
           currentTaskWithStep({
             id: options.id ?? "test-task",
             headers: options.headers ?? {},
-            executeStep: StepStorage.make(
-              StepStorage.inMemory({ checkpoints, onStep: options.onStep }),
+            executeStep: Checkpoint.makeStep(
+              Checkpoint.makeMemory({ checkpoints, onStep: options.onStep }),
             ),
           }),
         ),

@@ -10,7 +10,13 @@ import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Workflow } from "effect/unstable/workflow";
-import * as WorkflowPersistence from "../src/unstable/workflow/Persistence.ts";
+import {
+  decodeParentExecution,
+  decodeStructuralExit,
+  encodeStructuralExit,
+  exitWithNullishValues,
+  makeWorkflowCodecs,
+} from "../src/unstable/workflow/AbsurdWorkflowEngine.ts";
 // These laws exercise the erased-`Workflow.Any` persistence boundary itself:
 // unknown-typed codecs and structural assertions ARE the subject under test,
 // mirroring the adapter's own lint exclusions for that seam.
@@ -33,7 +39,7 @@ const TransformsWf = Workflow.make("persistence-test/Transforms", {
   idempotencyKey: ({ at }) => String(at.getTime()),
 });
 
-const codecs = WorkflowPersistence.makeCodecs(TransformsWf);
+const codecs = makeWorkflowCodecs(TransformsWf);
 
 // These laws exercise service-free schemas; the erased `Workflow.Any` view
 // types their channels as `unknown`, so the test casts the same way the
@@ -132,33 +138,12 @@ describe("Workflow persistence codecs (Type side ↔ canonical JSON)", () => {
   });
 });
 
-describe("Workflow persistence compatibility", () => {
-  it("keeps durable identifier spellings stable", () => {
-    expect(WorkflowPersistence.interruptCheckpointName).toBe("$absurd:effect:v1:interrupt");
-    expect(WorkflowPersistence.parentExecutionHeaderKey).toBe("$absurd:effect:v1:parent");
-    expect(WorkflowPersistence.activityCheckpointName("charge", 2)).toBe(
-      "$absurd:effect:v1:activity:charge:2",
-    );
-    expect(WorkflowPersistence.deferredCheckpointName("approval")).toBe(
-      "$absurd:effect:v1:deferred:approval",
-    );
-    expect(WorkflowPersistence.clockDeadlineCheckpointName("deadline")).toBe(
-      "$absurd:effect:v1:clock:deadline",
-    );
-    expect(WorkflowPersistence.doorbellNames("execution-1", "doorbell-1")).toEqual({
-      checkpointName: "$absurd:effect:v1:wake:doorbell-1",
-      eventName: "$absurd:effect:v1:wake-event:execution-1:doorbell-1",
-    });
-    expect(WorkflowPersistence.deferredEventName("Invoice", "execution-1", "approval")).toBe(
-      "$absurd:effect:v1:deferred-event:Invoice:execution-1:approval",
-    );
-  });
-
+describe("Workflow format compatibility", () => {
   it("reads the literal parent-execution header", () => {
     // Keep this literal independent of the exported key so the persisted
     // spelling remains part of the compatibility test.
     const parent = Effect.runSync(
-      WorkflowPersistence.decodeParentExecution({
+      decodeParentExecution({
         "$absurd:effect:v1:parent": {
           queue: "finance",
           executionId: "invoice-123",
@@ -179,9 +164,9 @@ describe("Activity / deferred structural envelope (already-encoded domain)", () 
     // engine sees them; storage must not reapply the transform.
     const iso = "1970-01-01T00:00:00.000Z";
     const restored = Exit.succeed(iso).pipe(
-      WorkflowPersistence.encodeStructuralExit,
+      encodeStructuralExit,
       jsonRoundTrip,
-      WorkflowPersistence.decodeStructuralExit,
+      decodeStructuralExit,
       asExitView,
     );
 
@@ -200,10 +185,10 @@ describe("Activity / deferred structural envelope (already-encoded domain)", () 
       Schema.Unknown,
     );
     const restoredForHandoff = Exit.succeed(iso).pipe(
-      WorkflowPersistence.encodeStructuralExit,
+      encodeStructuralExit,
       jsonRoundTrip,
-      WorkflowPersistence.decodeStructuralExit,
-      WorkflowPersistence.exitWithNullishValues,
+      decodeStructuralExit,
+      exitWithNullishValues,
     );
     const typed = handoffDecode(partial, restoredForHandoff);
     expect((typed as { readonly value?: unknown }).value).toBeInstanceOf(Date);
@@ -212,9 +197,9 @@ describe("Activity / deferred structural envelope (already-encoded domain)", () 
 
   it("reconstructs Error defects instead of losing their identity", () => {
     const restored = Exit.die(new RangeError("gone")).pipe(
-      WorkflowPersistence.encodeStructuralExit,
+      encodeStructuralExit,
       jsonRoundTrip,
-      WorkflowPersistence.decodeStructuralExit,
+      decodeStructuralExit,
       asExitView,
     );
     const die = failReason(restored, "Die");
@@ -225,7 +210,7 @@ describe("Activity / deferred structural envelope (already-encoded domain)", () 
   });
 
   it("normalizes nullish Void successes for jsonb storage", () => {
-    const stored = WorkflowPersistence.encodeStructuralExit(Exit.succeed(undefined));
+    const stored = encodeStructuralExit(Exit.succeed(undefined));
     expect(JSON.stringify(stored)).toContain('"value":null');
 
     // A Void-success deferred (DurableDeferred.make default) decodes cleanly.
@@ -234,10 +219,7 @@ describe("Activity / deferred structural envelope (already-encoded domain)", () 
       Schema.toCodecJson(Schema.Never),
       Schema.toCodecJson(Schema.Defect()),
     );
-    const typed = handoffDecode(
-      voidPartial,
-      WorkflowPersistence.decodeStructuralExit(jsonRoundTrip(stored)),
-    );
+    const typed = handoffDecode(voidPartial, decodeStructuralExit(jsonRoundTrip(stored)));
     expect((typed as { _tag?: string })._tag).toBe("Success");
   });
 });

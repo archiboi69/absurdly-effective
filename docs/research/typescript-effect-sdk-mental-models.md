@@ -405,11 +405,15 @@ wrapper. It implements orchestration semantics on top of Absurd's primitives
 and is consequently much larger than the primary Task API.
 
 It also writes stable Effect-owned names and values into existing Absurd
-headers, checkpoints, and Events. Those names are centralized and versioned in
-[`Persistence.ts`](../../sdks/effect/src/unstable/workflow/Persistence.ts).
-They are not an additional SQL schema, but they are a durable protocol: an old
-execution may resume under a newer worker, so existing names and encodings
-cannot be silently changed.
+headers, checkpoints, and Events. Engine-owned identifiers are centralized and
+versioned in
+[`Reserved.ts`](../../sdks/effect/src/unstable/workflow/Reserved.ts), while the
+private schemas and codecs remain beside their sole consumer in
+[`AbsurdWorkflowEngine.ts`](../../sdks/effect/src/unstable/workflow/AbsurdWorkflowEngine.ts).
+Together they form the adapter's persistence contract. They are not an
+additional SQL schema, but they are a durable protocol: an old execution may
+resume under a newer worker, so existing names and encodings cannot be silently
+changed.
 
 This is why the adapter lives under `unstable/workflow`. The primary Task API
 can remain a direct, language-idiomatic SDK over Absurd. The optional adapter

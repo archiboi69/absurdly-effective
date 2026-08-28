@@ -2,7 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { RoutedSpawnOptions } from "./Task.ts";
+import type { RoutedSpawnOptions } from "../Task.ts";
 
 export type StoredTaskStatus =
   | { readonly _tag: "NotFound" }
@@ -38,4 +38,4 @@ export class TaskStore extends Context.Service<
     readonly spawn: (request: SpawnRequest) => Effect.Effect<string, TaskStoreError>;
     readonly status: (request: StatusRequest) => Effect.Effect<StoredTaskStatus, TaskStoreError>;
   }
->()("absurdly-effective/TaskStore") {}
+>()("absurdly-effective/internal/TaskStore") {}

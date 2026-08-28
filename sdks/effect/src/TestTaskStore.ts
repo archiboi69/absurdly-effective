@@ -5,9 +5,9 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 
 import { CurrentTask, currentTaskWithStep } from "./CurrentTask.ts";
-import * as StepStorage from "./StepStorage.ts";
+import * as Checkpoint from "./internal/Checkpoint.ts";
+import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./internal/TaskStore.ts";
 import type { AnyHandler, HandlerRequirements, RoutedSpawnOptions } from "./Task.ts";
-import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts";
 
 // This adapter deliberately stores encoded JSON-shaped values so the same Task
 // and Step schemas are exercised in tests as at the production SDK boundary.
@@ -81,7 +81,9 @@ const makeLayer = <const Handlers extends ReadonlyArray<AnyHandler>>(
         const current = currentTaskWithStep({
           id: entry.id,
           headers: entry.options.headers ?? {},
-          executeStep: StepStorage.make(StepStorage.inMemory({ checkpoints: entry.checkpoints })),
+          executeStep: Checkpoint.makeStep(
+            Checkpoint.makeMemory({ checkpoints: entry.checkpoints }),
+          ),
         });
         const exit = yield* handler.execute(entry.payload).pipe(
           Effect.provideService(CurrentTask, current),

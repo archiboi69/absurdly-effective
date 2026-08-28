@@ -16,11 +16,11 @@ import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { hostname } from "node:os";
 
+import * as AbsurdSql from "./internal/AbsurdSql.ts";
+import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./internal/TaskStore.ts";
 import type { Cancellation, Retry, RoutedSpawnOptions } from "./Task.ts";
-import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts";
 
 // SqlSchema validates task metadata rows at the PostgreSQL boundary. Task and
 // Step schemas separately validate user payloads and checkpoint values before
@@ -31,8 +31,6 @@ import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts
 const defaultMaxAttempts = 5;
 const unknownTaskDeferBaseSeconds = 15;
 const unknownTaskDeferJitterSeconds = 15;
-const JsonText = Schema.fromJsonString(Schema.Unknown);
-const JsonObjectText = Schema.fromJsonString(Schema.JsonObject);
 
 export interface Options {
   readonly url: Redacted.Redacted;
@@ -92,77 +90,6 @@ export class Absurd extends Context.Service<
     return driverLayer;
   }
 }
-
-const SpawnTaskRequest = Schema.Struct({
-  queue: Schema.String,
-  name: Schema.String,
-  payload: JsonText,
-  options: JsonObjectText,
-});
-
-const SpawnRow = Schema.Struct({ task_id: Schema.String });
-
-const TaskStatusRequest = Schema.Struct({
-  queue: Schema.String,
-  taskId: Schema.String,
-});
-
-const StatusRow = Schema.Struct({
-  state: Schema.Literals(["pending", "running", "sleeping", "completed", "failed", "cancelled"]),
-  result: Schema.Unknown,
-  failure_reason: Schema.Json,
-});
-
-const ClaimTasksRequest = Schema.Struct({
-  queue: Schema.String,
-  workerId: Schema.String,
-  claimTimeout: Schema.Finite,
-  batchSize: Schema.Int,
-});
-
-const ClaimedTask = Schema.Struct({
-  run_id: Schema.String,
-  task_id: Schema.String,
-  task_name: Schema.String,
-  params: Schema.Unknown,
-  headers: Schema.NullOr(Schema.JsonObject),
-});
-type ClaimedTask = typeof ClaimedTask.Type;
-
-const CheckpointRequest = Schema.Struct({
-  queue: Schema.String,
-  taskId: Schema.String,
-  checkpointName: Schema.String,
-});
-
-const CheckpointRow = Schema.Struct({ state: Schema.Unknown });
-
-const SetCheckpointStateRequest = Schema.Struct({
-  queue: Schema.String,
-  taskId: Schema.String,
-  checkpointName: Schema.String,
-  state: JsonText,
-  runId: Schema.String,
-  claimTimeout: Schema.Int,
-});
-
-const CompleteRunRequest = Schema.Struct({
-  queue: Schema.String,
-  runId: Schema.String,
-  value: JsonText,
-});
-
-const FailRunRequest = Schema.Struct({
-  queue: Schema.String,
-  runId: Schema.String,
-  reason: JsonObjectText,
-});
-
-const ScheduleRunRequest = Schema.Struct({
-  queue: Schema.String,
-  runId: Schema.String,
-  delay: Schema.Int,
-});
 
 type ExponentialRetryJson = {
   kind: "exponential";
@@ -240,7 +167,7 @@ const spawnOptionsToJson = (options: RoutedSpawnOptions): Schema.JsonObject => {
   return result;
 };
 
-const statusFromRow = (row: Option.Option<typeof StatusRow.Type>): StoredTaskStatus => {
+const statusFromRow = (row: Option.Option<AbsurdSql.TaskSnapshotRow>): StoredTaskStatus => {
   if (Option.isNone(row)) return { _tag: "NotFound" };
   switch (row.value.state) {
     case "pending":
@@ -298,106 +225,12 @@ const deterministicJitterSeconds = (seed: string, maxSeconds: number): number =>
   return Math.abs(hash) % (maxSeconds + 1);
 };
 
-const makeFindCheckpoint = (sql: SqlClient) =>
-  SqlSchema.findOneOption({
-    Request: CheckpointRequest,
-    Result: CheckpointRow,
-    execute: ({ queue, taskId, checkpointName }) => sql`
-      SELECT state
-      FROM absurd.get_task_checkpoint_state(${queue}, ${taskId}, ${checkpointName})
-    `,
-  });
-
-const makeClaimTasks = (sql: SqlClient) =>
-  SqlSchema.findAll({
-    Request: ClaimTasksRequest,
-    Result: ClaimedTask,
-    execute: ({ queue, workerId, claimTimeout, batchSize }) => sql`
-      SELECT run_id, task_id, task_name, params, headers
-      FROM absurd.claim_task(${queue}, ${workerId}, ${claimTimeout}, ${batchSize})
-    `,
-  });
-
-const makeSpawnTask = (sql: SqlClient) =>
-  SqlSchema.findOne({
-    Request: SpawnTaskRequest,
-    Result: SpawnRow,
-    execute: ({ queue, name, payload, options }) => sql`
-      SELECT task_id
-      FROM absurd.spawn_task(
-        ${queue},
-        ${name},
-        ${payload},
-        ${options}
-      )
-    `,
-  });
-
-const makeGetTaskStatus = (sql: SqlClient) =>
-  SqlSchema.findOneOption({
-    Request: TaskStatusRequest,
-    Result: StatusRow,
-    execute: ({ queue, taskId }) => sql`
-      SELECT state, result, failure_reason
-      FROM absurd.get_task_result(${queue}, ${taskId})
-    `,
-  });
-
-const makeSetCheckpointState = (sql: SqlClient) =>
-  SqlSchema.void({
-    Request: SetCheckpointStateRequest,
-    execute: ({ queue, taskId, checkpointName, state, runId, claimTimeout }) => sql`
-      SELECT absurd.set_task_checkpoint_state(
-        ${queue},
-        ${taskId},
-        ${checkpointName},
-        ${state},
-        ${runId},
-        ${claimTimeout}
-      )
-    `,
-  });
-
-const makeCompleteRun = (sql: SqlClient) =>
-  SqlSchema.void({
-    Request: CompleteRunRequest,
-    execute: ({ queue, runId, value }) =>
-      sql`SELECT absurd.complete_run(${queue}, ${runId}, ${value})`,
-  });
-
-const makeFailRun = (sql: SqlClient) =>
-  SqlSchema.void({
-    Request: FailRunRequest,
-    execute: ({ queue, runId, reason }) =>
-      sql`SELECT absurd.fail_run(${queue}, ${runId}, ${reason}, ${null})`,
-  });
-
-const makeScheduleRun = (sql: SqlClient) =>
-  SqlSchema.void({
-    Request: ScheduleRunRequest,
-    execute: ({ queue, runId, delay }) => sql`
-      SELECT absurd.schedule_run(
-        ${queue},
-        ${runId},
-        absurd.current_time() + make_interval(secs => ${delay})
-      )
-    `,
-  });
-
-const makeWorkerPersistence = (sql: SqlClient) => ({
-  findCheckpoint: makeFindCheckpoint(sql),
-  claimTasks: makeClaimTasks(sql),
-  setCheckpointState: makeSetCheckpointState(sql),
-  completeRun: makeCompleteRun(sql),
-  failRun: makeFailRun(sql),
-  scheduleRun: makeScheduleRun(sql),
-});
-type WorkerPersistence = ReturnType<typeof makeWorkerPersistence>;
+type AbsurdSqlStore = ReturnType<typeof AbsurdSql.make>;
 
 const makeTaskContext = (
-  persistence: WorkerPersistence,
+  store: AbsurdSqlStore,
   queue: string,
-  task: ClaimedTask,
+  task: AbsurdSql.ClaimedRow,
   claimTimeout: number,
   onLeaseExtended: Effect.Effect<void>,
 ): TaskContext => {
@@ -411,26 +244,22 @@ const makeTaskContext = (
       stepOccurrences.set(name, occurrence);
       const checkpointName = occurrence === 1 ? name : `${name}#${occurrence}`;
 
-      const existing = yield* persistence.findCheckpoint({
-        queue,
-        taskId: task.task_id,
-        checkpointName,
-      });
+      const existing = yield* store.checkpointState(queue, task.task_id, checkpointName);
       if (Option.isSome(existing)) {
-        return { done: true as const, state: existing.value.state };
+        return { done: true as const, state: existing.value };
       }
 
       return {
         done: false as const,
         complete: Effect.fn("Absurd.completeStep")(function* (value) {
-          yield* persistence.setCheckpointState({
+          yield* store.setCheckpointState(
             queue,
-            taskId: task.task_id,
+            task.task_id,
             checkpointName,
-            state: value ?? null,
-            runId: task.run_id,
+            value ?? null,
+            task.run_id,
             claimTimeout,
-          });
+          );
           yield* onLeaseExtended;
         }),
       };
@@ -439,7 +268,7 @@ const makeTaskContext = (
 };
 
 const leaseWatchdog = (
-  task: ClaimedTask,
+  task: AbsurdSql.ClaimedRow,
   claimTimeout: number,
   leaseExtensions: Queue.Dequeue<void>,
   fatal: boolean,
@@ -466,51 +295,49 @@ const leaseWatchdog = (
 };
 
 const completeRun = (
-  persistence: WorkerPersistence,
+  store: AbsurdSqlStore,
   queue: string,
   runId: string,
   value: unknown,
 ): Effect.Effect<void, SqlError | Schema.SchemaError> =>
-  persistence.completeRun({ queue, runId, value: value ?? null }).pipe(ignoreTerminalTaskError);
+  store.completeRun(queue, runId, value ?? null).pipe(ignoreTerminalTaskError);
 
 const failRun = (
-  persistence: WorkerPersistence,
+  store: AbsurdSqlStore,
   queue: string,
   runId: string,
   cause: unknown,
 ): Effect.Effect<void, SqlError | Schema.SchemaError> =>
-  persistence
-    .failRun({ queue, runId, reason: serializeFailure(cause) })
-    .pipe(ignoreTerminalTaskError);
+  store.failRun(queue, runId, serializeFailure(cause)).pipe(ignoreTerminalTaskError);
 
 const deferUnknownTask = (
-  persistence: WorkerPersistence,
+  store: AbsurdSqlStore,
   queue: string,
-  task: ClaimedTask,
+  task: AbsurdSql.ClaimedRow,
 ): Effect.Effect<void, SqlError | Schema.SchemaError> => {
   const delay =
     unknownTaskDeferBaseSeconds +
     deterministicJitterSeconds(task.run_id, unknownTaskDeferJitterSeconds);
-  return persistence.scheduleRun({ queue, runId: task.run_id, delay }).pipe(
+  return store.scheduleRunInSeconds(queue, task.run_id, delay).pipe(
     Effect.tap(() =>
       Effect.logWarning(`Deferred unknown task "${task.task_name}"`).pipe(
         Effect.annotateLogs({ taskId: task.task_id, runId: task.run_id, delay }),
       ),
     ),
-    Effect.catch((error) => failRun(persistence, queue, task.run_id, error)),
+    Effect.catch((error) => failRun(store, queue, task.run_id, error)),
   );
 };
 
 const executeClaimedTask = (
-  persistence: WorkerPersistence,
+  store: AbsurdSqlStore,
   queue: string,
-  task: ClaimedTask,
+  task: AbsurdSql.ClaimedRow,
   registrations: ReadonlyMap<string, Registration>,
   claimTimeout: number,
   fatalOnLeaseTimeout: boolean,
 ): Effect.Effect<void, SqlError | Schema.SchemaError> => {
   const registration = registrations.get(task.task_name);
-  if (registration === undefined) return deferUnknownTask(persistence, queue, task);
+  if (registration === undefined) return deferUnknownTask(store, queue, task);
   const execution = Effect.scoped(
     Effect.gen(function* () {
       const leaseExtensions = yield* Queue.unbounded<void>();
@@ -518,7 +345,7 @@ const executeClaimedTask = (
         Effect.forkScoped,
       );
       const context = makeTaskContext(
-        persistence,
+        store,
         queue,
         task,
         claimTimeout,
@@ -530,14 +357,14 @@ const executeClaimedTask = (
   return execution.pipe(
     Effect.flatMap((exit) =>
       Exit.isSuccess(exit)
-        ? completeRun(persistence, queue, task.run_id, exit.value)
-        : failRun(persistence, queue, task.run_id, exit.cause),
+        ? completeRun(store, queue, task.run_id, exit.value)
+        : failRun(store, queue, task.run_id, exit.cause),
     ),
   );
 };
 
 const startWorker = (
-  sql: SqlClient,
+  store: AbsurdSqlStore,
   options: WorkerOptions,
 ): Effect.Effect<WorkerHandle, never, Scope.Scope> =>
   Effect.gen(function* () {
@@ -545,7 +372,6 @@ const startWorker = (
     const availability = yield* Queue.unbounded<void>();
     const executions = yield* FiberSet.make<void, never>();
     const registrations = new Map(options.registrations.map((item) => [item.name, item]));
-    const persistence = makeWorkerPersistence(sql);
     const concurrency = options.concurrency ?? 1;
     const batchSize = options.batchSize ?? concurrency;
     const claimTimeout = wholeSeconds(options.claimTimeout) ?? 120;
@@ -558,13 +384,8 @@ const startWorker = (
       Deferred.await(stop),
     ]);
     const claim = (availableCapacity: number) =>
-      persistence
-        .claimTasks({
-          queue: options.queue,
-          workerId,
-          claimTimeout,
-          batchSize: Math.min(batchSize, availableCapacity),
-        })
+      store
+        .claimTasks(options.queue, workerId, claimTimeout, Math.min(batchSize, availableCapacity))
         .pipe(
           Effect.catch((error) =>
             Effect.logError("Failed to claim Absurd tasks").pipe(
@@ -573,9 +394,9 @@ const startWorker = (
             ),
           ),
         );
-    const execute = (task: ClaimedTask) =>
+    const execute = (task: AbsurdSql.ClaimedRow) =>
       executeClaimedTask(
-        persistence,
+        store,
         options.queue,
         task,
         registrations,
@@ -624,30 +445,33 @@ const startWorker = (
 
 const makeContext = Effect.gen(function* () {
   const sql = yield* SqlClient;
-  const spawnTask = makeSpawnTask(sql);
-  const getTaskStatus = makeGetTaskStatus(sql);
-  const absurd = Absurd.of({ startWorker: (options) => startWorker(sql, options) });
+  const sqlStore = AbsurdSql.make(sql);
+  const absurd = Absurd.of({ startWorker: (options) => startWorker(sqlStore, options) });
   const store = TaskStore.of({
     spawn: Effect.fn("Absurd.spawn")(function* (request) {
-      const row = yield* spawnTask({
-        queue: request.options.queue,
-        name: request.name,
-        payload: request.payload ?? null,
-        options: spawnOptionsToJson(request.options),
-      }).pipe(
-        Effect.mapError((cause) =>
-          TaskStoreError.make({
-            operation: "spawn",
-            taskName: request.name,
-            taskId: null,
-            cause: Cause.isNoSuchElementError(cause) ? "absurd.spawn_task returned no task" : cause,
-          }),
-        ),
-      );
+      const row = yield* sqlStore
+        .spawnTask(
+          request.options.queue,
+          request.name,
+          request.payload ?? null,
+          spawnOptionsToJson(request.options),
+        )
+        .pipe(
+          Effect.mapError((cause) =>
+            TaskStoreError.make({
+              operation: "spawn",
+              taskName: request.name,
+              taskId: null,
+              cause: Cause.isNoSuchElementError(cause)
+                ? "absurd.spawn_task returned no task"
+                : cause,
+            }),
+          ),
+        );
       return row.task_id;
     }),
     status: Effect.fn("Absurd.status")(function* (request) {
-      const row = yield* getTaskStatus({ queue: request.queue, taskId: request.id }).pipe(
+      const row = yield* sqlStore.taskResult(request.queue, request.id).pipe(
         Effect.mapError((cause) =>
           TaskStoreError.make({
             operation: "status",

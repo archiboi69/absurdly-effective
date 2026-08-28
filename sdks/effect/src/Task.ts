@@ -2,7 +2,7 @@ import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./TaskStore.ts";
+import { TaskStore, TaskStoreError, type StoredTaskStatus } from "./internal/TaskStore.ts";
 
 // Task payloads and results cross an untyped JSON boundary. Their schemas are
 // the single validation and transformation boundary.

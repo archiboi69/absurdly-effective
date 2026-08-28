@@ -7,10 +7,10 @@ import * as Option from "effect/Option";
 
 import { Absurd, type Registration, type TaskContext } from "./Absurd.ts";
 import { CurrentTask, currentTaskWithStep } from "./CurrentTask.ts";
+import * as Checkpoint from "./internal/Checkpoint.ts";
+import { TaskStore } from "./internal/TaskStore.ts";
 import { StepPersistenceError } from "./Step.ts";
-import * as StepStorage from "./StepStorage.ts";
 import type { AnyHandler, HandlerRequirements } from "./Task.ts";
-import { TaskStore } from "./TaskStore.ts";
 
 // Heterogeneous handlers erase their channels only inside this adapter; the
 // Layer reconstructs and requires their combined services.
@@ -28,7 +28,7 @@ export interface Options<Handlers extends ReadonlyArray<AnyHandler>> {
   readonly fatalOnLeaseTimeout?: boolean | undefined;
 }
 
-const beginStep = (context: TaskContext): StepStorage.BeginStep =>
+const beginStep = (context: TaskContext): Checkpoint.BeginStep =>
   Effect.fn("Worker.beginStep")(function* (name) {
     const handle = yield* context.beginStep(name).pipe(
       Effect.mapError((cause) =>
@@ -70,7 +70,7 @@ const executeHandler = (
       currentTaskWithStep({
         id: context.id,
         headers: context.headers,
-        executeStep: StepStorage.make(beginStep(context)),
+        executeStep: Checkpoint.makeStep(beginStep(context)),
       }),
     ),
     Effect.provideService(TaskStore, store),

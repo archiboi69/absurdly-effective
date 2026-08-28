@@ -5,17 +5,19 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { Absurd } from "../src/Absurd.ts";
-import { TaskStore } from "../src/TaskStore.ts";
+import { TaskStore } from "../src/internal/TaskStore.ts";
 
 // This test closes the complete Layer graph at its entrypoint.
 // oxlint-disable effecttsgo/strict-effect-provide
 // The callable SqlClient test double cannot be constructed structurally.
 // oxlint-disable anti-slop/no-chained-type-assertions
 
-// SAFETY: The fake supplies the only SqlClient operation exercised by these
-// tests: compiling a statement into an Effect of driver rows.
-const sqlReturning = (rows: ReadonlyArray<object>): SqlClient.SqlClient =>
-  (() => Effect.succeed(rows)) as unknown as SqlClient.SqlClient;
+const sqlReturning = (rows: ReadonlyArray<object>): SqlClient.SqlClient => {
+  const execute = () => Effect.succeed(rows);
+  // SAFETY: these tests exercise only the callable and `unsafe` statement
+  // entry points, both of which this fake implements with identical results.
+  return Object.assign(execute, { unsafe: execute }) as unknown as SqlClient.SqlClient;
+};
 
 const taskStoreLayer = (rows: ReadonlyArray<object>) =>
   Absurd.layerSql.pipe(Layer.provide(Layer.succeed(SqlClient.SqlClient, sqlReturning(rows))));
